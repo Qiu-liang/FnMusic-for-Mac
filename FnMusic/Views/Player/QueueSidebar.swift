@@ -35,14 +35,7 @@ struct QueueSidebar: View {
     var body: some View {
         VStack(spacing: 0) {
             modeControls
-            GeometryReader { geometry in
-                VStack(spacing: 0) {
-                    historySection
-                        .frame(height: max(120, geometry.size.height * 0.40))
-                    Divider()
-                    queueSection.frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
+            queueSection.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
@@ -58,7 +51,6 @@ struct QueueSidebar: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("FnMusic.QueueSidebar")
         .onExitCommand { library.showQueue = false }
-        .task { await library.queuePanel.loadHistoryIfNeeded() }
     }
 
     private var modeControls: some View {
@@ -92,67 +84,6 @@ struct QueueSidebar: View {
         .font(.system(size: 16))
         .padding(.horizontal, 12)
         .frame(height: PageToolbarMetrics.height)
-    }
-
-    private var historySection: some View {
-        let state = library.queuePanel
-        let history = state.history
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("历史记录").font(.system(size: 14, weight: .semibold))
-                Spacer(minLength: 4)
-                Menu {
-                    Button("刷新服务器历史") { Task { await state.loadHistory(refresh: true) } }
-                        .disabled(history.isLoading)
-                    Button("恢复显示已清除的记录") { state.restoreHistoryDisplay() }
-                        .disabled(state.hiddenHistoryIDs.isEmpty)
-                    Text("清除仅隐藏本面板已显示的记录，不删除服务器历史。")
-                } label: { Image(systemName: "ellipsis") }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .accessibilityLabel("历史记录选项")
-                Button("清除") { state.clearDisplayedHistory() }
-                    .font(.system(size: 11)).foregroundStyle(.pink)
-                    .disabled(state.visibleHistory.isEmpty)
-                    .help("仅清除本面板已显示的历史，不删除服务器记录")
-                    .accessibilityLabel("清除本面板已显示的历史")
-                    .accessibilityIdentifier("FnMusic.QueueClearHistory")
-            }.buttonStyle(.plain).padding(.horizontal, 14).frame(height: 34)
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(state.visibleHistory) { track in
-                        QueueSidebarTrackRow(track: track, isCurrent: false, play: {
-                            // An explicit history play uses the existing queue insertion
-                            // and selection APIs; opening the panel never edits the queue.
-                            let queue = library.player.queue
-                            queue.insertNext(track)
-                            let index = queue.index.map { min($0 + 1, queue.tracks.count - 1) } ?? 0
-                            library.player.playQueueIndex(index)
-                        }) {
-                            Button("播放下一首") { library.player.queue.insertNext(track) }
-                            Button("加入待播清单") { library.player.queue.append(track) }
-                        }
-                    }
-                    if state.visibleHistory.isEmpty && !history.isLoading {
-                        VStack(spacing: 8) {
-                            Text(state.hiddenHistoryIDs.isEmpty ? "暂无服务器播放历史" : "已在本面板隐藏历史记录")
-                                .font(.caption).foregroundStyle(.secondary)
-                            if !state.hiddenHistoryIDs.isEmpty {
-                                Button("恢复显示") { state.restoreHistoryDisplay() }.font(.caption)
-                            }
-                        }.frame(maxWidth: .infinity).padding(.vertical, 16)
-                    }
-                    if history.isLoading { ProgressView().controlSize(.small).padding(12) }
-                    if let error = history.error {
-                        Text(error).font(.caption).foregroundStyle(.secondary).padding(8)
-                        Button("重试") { Task { await state.loadHistory() } }.font(.caption)
-                    } else if history.hasMore && !history.isLoading && !history.items.isEmpty {
-                        Button("加载更多历史") { Task { await state.loadHistory() } }
-                            .font(.caption).padding(10)
-                    }
-                }.padding(.horizontal, 12)
-            }
-            .accessibilityIdentifier("FnMusic.QueueHistoryScroll")
-        }
     }
 
     private func perform(_ index: Int, snapshot: [Track], action: (Int) -> Void) {
