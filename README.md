@@ -22,7 +22,7 @@ FnMusic 直接连接用户提供的飞牛音乐服务器，读取真实的歌曲
 
 ![连接页面](Docs/Screenshots/Connection-Light.png)
 
-![资料库页面](Docs/Screenshots/QQ20261009-120606.png)
+![资料库页面](Docs/Screenshots/Library-1280-TestFixture.png)
 
 
 ## 系统要求
@@ -126,7 +126,7 @@ Tools/                    图标生成等开发辅助脚本
 
 ## 许可证
 
-当前仓库尚未附带 `LICENSE` 文件。正式发布到 GitHub 前，请项目所有者选择并提交适合的开源许可证；在明确授权之前，第三方不应默认将本项目代码用于再分发。
+本项目以 [MIT License](LICENSE) 开源，完整文本见仓库根目录的 [LICENSE](LICENSE) 文件。
 
 ## 免责声明
 

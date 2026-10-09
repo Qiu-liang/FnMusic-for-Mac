@@ -2,6 +2,7 @@
 .DS_Store
 .AppleDouble
 .LSOverride
+QQ*.png
 
 # Xcode user data and local state
 DerivedData/
