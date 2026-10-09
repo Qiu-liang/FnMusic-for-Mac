@@ -19,7 +19,6 @@ FnMusic 直接连接用户提供的飞牛音乐服务器，读取真实的歌曲
 
 ## 截图
 
-以下图片来自测试夹具，不代表连接了真实服务器：
 
 ![连接页面](Docs/Screenshots/Connection-Light.png)
 
