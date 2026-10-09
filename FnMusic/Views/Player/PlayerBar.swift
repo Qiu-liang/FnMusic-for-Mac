@@ -68,7 +68,7 @@ struct PlayerBar: View {
             Button { player.next() } label: {
                 Image(systemName: "forward.fill").frame(width: 28, height: 32)
             }.help("下一首").accessibilityLabel("下一首")
-            Button { cycleRepeat() } label: {
+            Button { queue.cycleRepeatMode() } label: {
                 Image(systemName: queue.repeatMode == .one ? "repeat.1" : "repeat")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(queue.repeatMode == .off ? Color.secondary : .pink)
@@ -120,7 +120,12 @@ struct PlayerBar: View {
             }.help("歌词").accessibilityLabel("歌词").disabled(library.player.currentTrack == nil)
             Button { library.showQueue.toggle() } label: {
                 Image(systemName: "list.bullet").frame(width: 28, height: 32)
-            }.help("播放队列").accessibilityLabel("播放队列")
+                    .foregroundStyle(library.showQueue ? Color.pink : .primary.opacity(0.85))
+            }
+            .help(library.showQueue ? "收起待播清单" : "展开待播清单")
+            .accessibilityLabel("播放队列")
+            .accessibilityValue(library.showQueue ? "已展开" : "已收起")
+            .accessibilityIdentifier("FnMusic.QueueToggle")
             AudioRoutePicker(player: library.player).frame(width: 28, height: 28)
             Button { showVolume.toggle() } label: {
                 Image(systemName: library.player.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
@@ -164,14 +169,6 @@ struct PlayerBar: View {
         .onChange(of: player.elapsed) { _, value in if !seeking { seekValue = value } }
     }
 
-    private func cycleRepeat() {
-        let queue = library.player.queue
-        switch queue.repeatMode {
-        case .off: queue.repeatMode = .all
-        case .all: queue.repeatMode = .one
-        case .one: queue.repeatMode = .off
-        }
-    }
 }
 
 /// A thin but draggable progress line; the full native slider is also available
@@ -226,48 +223,5 @@ struct CompactPlaybackProgress: View {
             @unknown default: break
             }
         }
-    }
-}
-
-struct QueueView: View {
-    @Environment(LibraryContext.self) private var library
-    @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
-
-    var body: some View {
-        MusicPageChrome(title: "待播清单", placeholder: "在队列中查找", query: $query, showsCommonOptions: false) {
-            Button("清除查找") { query = "" }.disabled(query.isEmpty)
-            Button("完成") { dismiss() }.keyboardShortcut(.cancelAction)
-        } content: {
-            VStack(alignment: .leading, spacing: 0) {
-                if library.player.queue.tracks.isEmpty {
-                    ContentUnavailableView("队列为空", systemImage: "music.note.list")
-                } else {
-                    List {
-                        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let rows = Array(library.player.queue.tracks.enumerated()).filter {
-                            term.isEmpty || $0.element.displayTitle.localizedStandardContains(term) || $0.element.artistText.localizedStandardContains(term)
-                        }
-                        if rows.isEmpty { Text("没有匹配的队列歌曲").foregroundStyle(.secondary) }
-                        ForEach(rows, id: \.offset) { index, track in
-                            HStack(spacing: 12) {
-                                Image(systemName: library.player.queue.index == index ? "waveform" : "music.note")
-                                    .foregroundStyle(library.player.queue.index == index ? .pink : .secondary)
-                                VStack(alignment: .leading) {
-                                    Text(track.displayTitle).lineLimit(1)
-                                    Text(track.artistText).font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Button { library.player.playQueueIndex(index) } label: { Image(systemName: "play.fill") }
-                                Button { library.player.removeQueueEntry(at: index) } label: { Image(systemName: "minus.circle") }
-                            }.padding(.vertical, 5)
-                        }
-                    }.listStyle(.plain)
-                }
-                Text("队列仅保存已加载并加入的歌曲，不会一次取回整个音乐库。")
-                    .font(.caption).foregroundStyle(.secondary).padding(22)
-            }
-        }.frame(width: 460, height: 530)
-        .onExitCommand { dismiss() }
     }
 }

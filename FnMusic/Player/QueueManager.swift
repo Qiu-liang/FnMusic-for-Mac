@@ -49,6 +49,14 @@ final class QueueManager {
 
     var repeatMode: RepeatMode = .off
 
+    func cycleRepeatMode() {
+        switch repeatMode {
+        case .off: repeatMode = .all
+        case .all: repeatMode = .one
+        case .one: repeatMode = .off
+        }
+    }
+
     // Internal traversal state must not create observation dependencies for views.
     @ObservationIgnored private var bag: [Int] = []
     @ObservationIgnored private var history: [Int] = []

@@ -3,68 +3,52 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppState.self) private var app
     @Environment(LibraryContext.self) private var library
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var unavailableQuery = ""
     @State private var pageToolbarHost = WindowPageToolbarHost()
 
     var body: some View {
-        @Bindable var app = app
         @Bindable var library = library
         @Bindable var actions = library.actions
-        ZStack(alignment: .bottom) {
-            NavigationSplitView(columnVisibility: $library.columnVisibility) {
-                SidebarView(selection: $app.selection, userName: app.user?.name ?? "当前用户",
-                            serverName: app.configuration?.serverName ?? "飞牛音乐")
-                    .padding(.top, PageToolbarMetrics.height)
-                    .ignoresSafeArea(.container, edges: .top)
-            } detail: {
-                NavigationStack(path: $library.navigation) {
-                    destination
-                        .contentMargins(.bottom, PlayerBarMetrics.contentClearance, for: .scrollContent)
-                        .id(app.selection)
-                        .navigationTitle("")
-                        .navigationBarBackButtonHidden()
-                        .navigationDestination(for: LibraryRoute.self) { route in
-                            Group {
-                                if case .artist(let artist) = route {
-                                    ArtistsView(model: library.artistBrowser, initialArtist: artist)
-                                } else {
-                                    LibraryDetailView(route: route)
-                                        .contentMargins(.bottom, PlayerBarMetrics.contentClearance, for: .scrollContent)
-                                }
-                            }
-                            .navigationBarBackButtonHidden()
-                        }
+        GeometryReader { geometry in
+            let sidebarVisible = library.columnVisibility != .detailOnly
+            let docked = QueueSidebarMetrics.isDocked(windowWidth: geometry.size.width, sidebarVisible: sidebarVisible)
+            let panelWidth = QueueSidebarMetrics.width(windowWidth: geometry.size.width, sidebarVisible: sidebarVisible)
+            let reservedWidth = library.showQueue && docked ? panelWidth : 0
+            ZStack(alignment: .bottom) {
+                HStack(spacing: 0) {
+                    catalogPane.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if library.showQueue && docked {
+                        QueueSidebar().frame(width: panelWidth)
+                            .transition(.move(edge: .trailing))
+                    }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea(.container, edges: .top)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .environment(\.windowPageToolbarHost, pageToolbarHost)
-            .onPreferenceChange(WindowPageToolbarDescriptorKey.self) { pages in
-                Task { @MainActor in pageToolbarHost.updateVisible(pages) }
-            }
+                // At minimum window sizes preserve the existing page/player
+                // width. This unmasked drawer is the ONLY compact fallback;
+                // normal desktop sizes above use real, space-consuming columns.
+                .overlay(alignment: .trailing) {
+                    if library.showQueue && !docked {
+                        QueueSidebar().frame(width: panelWidth)
+                            .padding(.bottom, PlayerBarMetrics.contentClearance)
+                            .transition(.move(edge: .trailing))
+                    }
+                }
 
-            // The window owns the fixed header; each column reserves its height
-            // exactly once after extending through the native top safe area.
-            WindowPageToolbar(host: pageToolbarHost)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.leading, library.columnVisibility == .detailOnly ? 0 : MusicSidebarMetrics.width)
-                .zIndex(30)
-
-            // Playback remains outside all navigation/page chrome lifetimes.
-            PlayerBar()
-                .padding(.leading, library.columnVisibility == .detailOnly ? 0 : MusicSidebarMetrics.width)
-                .zIndex(20)
+                // A single stable player stays outside navigation and panel
+                // lifetimes. No branches, .id changes or new AudioPlayer instances.
+                PlayerBar()
+                    .padding(.leading, sidebarVisible ? MusicSidebarMetrics.width : 0)
+                    .padding(.trailing, reservedWidth)
+                    .zIndex(20)
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: library.showQueue)
+            .clipped()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Keep the native titlebar alive for traffic lights and window dragging.
-        // Only its items/background are replaced; hiding the entire toolbar also
-        // hides the window buttons on newer macOS versions.
         .toolbar(.visible, for: .windowToolbar)
         .toolbar(removing: .sidebarToggle)
         .toolbarBackground(.hidden, for: .windowToolbar)
         .ignoresSafeArea(.container, edges: .top)
-        .sheet(isPresented: $library.showQueue) { QueueView().environment(library) }
         .sheet(isPresented: $library.showLyrics) {
             LyricsView(service: LyricsService(client: library.client)).environment(library)
         }
@@ -106,6 +90,49 @@ struct RootView: View {
                     if !Task.isCancelled { actions.notice = nil }
                 }
             }
+        }
+    }
+
+    private var catalogPane: some View {
+        @Bindable var app = app
+        @Bindable var library = library
+        return ZStack(alignment: .top) {
+            NavigationSplitView(columnVisibility: $library.columnVisibility) {
+                SidebarView(selection: $app.selection, userName: app.user?.name ?? "当前用户",
+                            serverName: app.configuration?.serverName ?? "飞牛音乐")
+                    .padding(.top, PageToolbarMetrics.height)
+                    .ignoresSafeArea(.container, edges: .top)
+            } detail: {
+                NavigationStack(path: $library.navigation) {
+                    destination
+                        .contentMargins(.bottom, PlayerBarMetrics.contentClearance, for: .scrollContent)
+                        .id(app.selection)
+                        .navigationTitle("")
+                        .navigationBarBackButtonHidden()
+                        .navigationDestination(for: LibraryRoute.self) { route in
+                            Group {
+                                if case .artist(let artist) = route {
+                                    ArtistsView(model: library.artistBrowser, initialArtist: artist)
+                                } else {
+                                    LibraryDetailView(route: route)
+                                        .contentMargins(.bottom, PlayerBarMetrics.contentClearance, for: .scrollContent)
+                                }
+                            }
+                            .navigationBarBackButtonHidden()
+                        }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea(.container, edges: .top)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .environment(\.windowPageToolbarHost, pageToolbarHost)
+            .onPreferenceChange(WindowPageToolbarDescriptorKey.self) { pages in
+                Task { @MainActor in pageToolbarHost.updateVisible(pages) }
+            }
+            WindowPageToolbar(host: pageToolbarHost)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.leading, library.columnVisibility == .detailOnly ? 0 : MusicSidebarMetrics.width)
+                .zIndex(30)
         }
     }
 
