@@ -23,7 +23,7 @@ FnMusic 直接连接用户提供的飞牛音乐服务器，读取真实的歌曲
 
 ![连接页面](Docs/Screenshots/Connection-Light.png)
 
-![Uploading QQ20261009-120606.png…]()
+![资料库页面](Docs/Screenshots/QQ20261009-120606.png)
 
 
 ## 系统要求
