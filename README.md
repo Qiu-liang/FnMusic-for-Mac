@@ -33,7 +33,6 @@ FnMusic 直接连接用户提供的飞牛音乐服务器，读取真实的歌曲
 - 当前开发验证工具链为 Xcode 27.0 / Swift 6.4。部分 Liquid Glass 效果在较旧系统上会回退为系统材质。
 - 无第三方 Swift Package、npm、CocoaPods 或额外播放器依赖。
 
-> 当前工程使用本地开发配置和 ad-hoc 签名。正式分发前，请配置你自己的 Team、签名、Developer ID 和公证流程。
 
 ## 快速开始
 
@@ -66,7 +65,7 @@ xcodebuild -project FnMusic.xcodeproj -scheme FnMusic \
 
 ## API 兼容性与证据边界
 
-本项目依赖用户提供的飞牛音乐 API 说明，不包含后端实现。接口文档和实现以 `serverVersion 1.0.10` / `mediasrvVersion 0.8.43` 的验证范围为基础，不保证其它服务器版本、反向代理配置或权限模型完全兼容。
+本项目API由官方网页端逆向得到，不包含后端实现。接口文档和实现以 `serverVersion 1.0.10` / `mediasrvVersion 0.8.43` 的验证范围为基础，不保证其它服务器版本、反向代理配置或权限模型完全兼容。
 
 建议先阅读：
 
