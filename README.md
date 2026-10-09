@@ -17,12 +17,6 @@ FnMusic 直接连接用户提供的飞牛音乐服务器，读取真实的歌曲
 - 登录会话保存在 Keychain；服务器地址、账号和必要的会话信息按账户隔离。
 - 歌单创建、重命名、删除及歌曲增删属于**默认关闭的实验性写入功能**，需要在设置中显式开启并由用户逐次触发。
 
-## 截图
-
-
-![连接页面](Docs/Screenshots/Connection-Light.png)
-
-![资料库页面](Docs/Screenshots/Library-1280-TestFixture.png)
 
 
 ## 系统要求
