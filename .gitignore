@@ -1,7 +1,45 @@
+# macOS
 .DS_Store
-.build/
+.AppleDouble
+.LSOverride
+
+# Xcode user data and local state
 DerivedData/
-*.xcuserstate
+.build/
 xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+*.xccheckout
+*.moved-aside
+*.pbxuser
+*.mode1v3
+*.mode2v3
+
+# Swift Package Manager / dependency checkouts
+.swiftpm/
+Packages/
+Pods/
+Carthage/Build/
+
+# Build products and archives
+*.app
+*.dSYM
+*.dSYM.zip
+*.ipa
+*.xcarchive
+*.xcresult
+*.zip
+Deliverables/
+
+# Local configuration, credentials, and logs
 .env
+.env.*
+!.env.example
+*.local
 *.log
+*.secret
+*.private.xcconfig
+
+# IDE/editor metadata
+.vscode/
+.idea/
