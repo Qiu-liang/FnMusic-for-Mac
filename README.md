@@ -65,7 +65,6 @@ xcodebuild -project FnMusic.xcodeproj -scheme FnMusic \
 - 播放音频不作为离线缓存持久化；下载必须由用户在保存面板中明确选择目标位置。
 - 本工程尚未启用 App Sandbox，也未配置 Mac App Store 分发；请在你自己的环境中评估权限和签名策略。
 
-请不要在 Issue、Pull Request、截图或日志中提交真实服务器地址、用户名、密码、token、Cookie、私人媒体路径或账号数据。文档与示例中出现的域名、token 和媒体路径均为占位值。
 
 ## 已知限制
 
