@@ -44,3 +44,10 @@ Deliverables/
 # IDE/editor metadata
 .vscode/
 .idea/
+
+# Local-only materials (kept on disk, not open-sourced)
+/Tests/
+/Docs/
+/Tools/
+/FnMusicAPI.md
+/Assets.xcassets/
