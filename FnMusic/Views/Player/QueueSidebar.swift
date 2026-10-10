@@ -27,15 +27,19 @@ struct QueueSidebarBoundsKey: PreferenceKey {
     }
 }
 
-/// A layout child of the main window, never a sheet or a separate NSWindow.
-struct QueueSidebar: View {
+/// Shared right-hand column for both queue and lyrics. It remains a child of
+/// the main window so the catalog gives up the same measured width in either mode.
+struct RightSidebar: View {
     @Environment(LibraryContext.self) private var library
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
-        VStack(spacing: 0) {
-            modeControls
-            queueSection.frame(maxWidth: .infinity, maxHeight: .infinity)
+        Group {
+            switch library.rightPanel {
+            case .queue: QueueSidebar()
+            case .lyrics: LyricsView()
+            case nil: EmptyView()
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
@@ -49,8 +53,22 @@ struct QueueSidebar: View {
             }
         }
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("FnMusic.RightSidebar")
+        .onExitCommand { library.rightPanel = nil }
+    }
+}
+
+/// Queue-specific content inside the shared right sidebar surface.
+struct QueueSidebar: View {
+    @Environment(LibraryContext.self) private var library
+
+    var body: some View {
+        VStack(spacing: 0) {
+            modeControls
+            queueSection.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("FnMusic.QueueSidebar")
-        .onExitCommand { library.showQueue = false }
     }
 
     private var modeControls: some View {
@@ -73,7 +91,7 @@ struct QueueSidebar: View {
             .help("随机播放（已加入队列的歌曲）").accessibilityLabel("随机播放")
             .accessibilityValue(queue.shuffle ? "开启" : "关闭")
             .accessibilityIdentifier("FnMusic.QueueShuffle")
-            Button { library.showQueue = false } label: {
+            Button { library.rightPanel = nil } label: {
                 Image(systemName: "xmark").font(.system(size: 11, weight: .medium))
                     .frame(width: 24, height: 32)
             }

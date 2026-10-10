@@ -1,82 +1,148 @@
 import SwiftUI
 
+/// Compact lyric presentation hosted by RightSidebar in the main window.
 struct LyricsView: View {
     @Environment(LibraryContext.self) private var library
-    @Environment(\.dismiss) private var dismiss
-    @State private var model: LyricsViewModel
     @State private var follow = true
-    @State private var query = ""
 
-    init(service: any LyricsServiceProtocol) { _model = State(initialValue: LyricsViewModel(service: service)) }
-
-    var body: some View {
-        MusicPageChrome(title: "歌词", placeholder: "在歌词中查找", query: $query, inset: .padded, showsCommonOptions: false) {
-            Toggle("跟随播放", isOn: $follow)
-            if model.variants.count > 1 {
-                Picker("歌词版本", selection: $model.selectedGUID) {
-                    ForEach(model.variants) { lyric in
-                        Text("来源 \(lyric.source.map(String.init) ?? "未知") · \(lyric.guid.suffix(4))")
-                            .tag(Optional(lyric.guid))
-                    }
-                }
-            }
-            Text("查找期间暂不自动滚动，不修改服务器歌词偏好。")
-            Divider()
-            Button("完成") { dismiss() }.keyboardShortcut(.cancelAction)
-        } content: {
-            HStack(spacing: 38) {
-                VStack(alignment: .leading, spacing: 18) {
-                    ArtworkView(coverId: library.player.currentTrack?.coverId, cache: library.images)
-                        .frame(width: 270, height: 270)
-                        .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
-                    Text(library.player.currentTrack?.displayTitle ?? "未在播放").font(.title2.weight(.semibold))
-                    Text(library.player.currentTrack?.artistText ?? "").foregroundStyle(.secondary)
-                    Text("仅调整本地展示，不向服务器写入偏移或歌词偏好。")
-                        .font(.caption).foregroundStyle(.tertiary)
-                    Spacer()
-                }.frame(width: 270)
-                lyricContent
-            }.padding(.horizontal, 32).padding(.vertical, 16)
-        }
-        .frame(minWidth: 820, idealWidth: 920, minHeight: 560, idealHeight: 650)
-        .background(.regularMaterial)
-        .onExitCommand { dismiss() }
-        .task(id: library.player.currentTrack?.guid) { await model.load(trackGUID: library.player.currentTrack?.guid) }
-        .onChange(of: model.selectedGUID) { _, _ in model.select() }
+    private struct Entry: Identifiable {
+        let id: Int
+        let text: String
+        var translations: [String] = []
     }
 
-    private var lyricContent: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                let current = model.parsed.currentIndex(at: library.player.elapsed)
-                let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
-                let visible = Array(model.parsed.lines.enumerated()).filter { term.isEmpty || $0.element.text.localizedStandardContains(term) }
-                VStack(alignment: .leading, spacing: 24) {
-                    LoadStateView(isLoading: model.loading, isEmpty: model.parsed.lines.isEmpty, error: model.error,
-                                  emptyTitle: "暂无歌词") { await model.load(trackGUID: library.player.currentTrack?.guid) }
-                    if !model.parsed.lines.isEmpty && visible.isEmpty {
-                        ContentUnavailableView("没有匹配歌词", systemImage: "magnifyingglass")
-                    }
-                    LazyVStack(alignment: .leading, spacing: 26) {
-                        ForEach(visible, id: \.element.id) { index, line in
-                            Text(line.text)
-                                .font(.system(size: current == index ? 29 : 24, weight: .semibold, design: .rounded))
-                                .foregroundStyle(current == index || !model.parsed.isTimed ? .primary : .secondary)
-                                .opacity(current == index || !model.parsed.isTimed ? 1 : 0.55)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                                .onTapGesture { if let time = line.time { library.player.seek(to: max(0, time)) } }
-                                .id(line.id)
+    var body: some View {
+        @Bindable var model = library.lyricsPanel
+        let track = library.player.currentTrack
+        let current = model.parsed.currentIndex(at: library.player.elapsed)
+
+        VStack(spacing: 0) {
+            panelHeader(model: model)
+            ScrollViewReader { proxy in
+                GeometryReader { geometry in
+                    ScrollView {
+                        let entries = displayEntries(model.parsed.lines)
+                        if model.loading {
+                            ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(.top, 50)
+                        } else if let error = model.error {
+                            ContentUnavailableView {
+                                Label("歌词加载失败", systemImage: "quote.bubble")
+                            } description: {
+                                Text(error).lineLimit(4)
+                            } actions: {
+                                Button("重试") { Task { await model.load(trackGUID: track?.guid) } }
+                            }
+                            .padding(.top, 26)
+                        } else if entries.isEmpty {
+                            ContentUnavailableView("暂无歌词", systemImage: "quote.bubble")
+                                .padding(.top, 26)
+                        } else {
+                            LazyVStack(alignment: .leading, spacing: 23) {
+                                ForEach(entries) { entry in
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(entry.text)
+                                            .font(.system(size: current == entry.id ? 21 : 17,
+                                                          weight: current == entry.id ? .bold : .semibold,
+                                                          design: .rounded))
+                                            .foregroundStyle(.primary.opacity(current == entry.id || !model.parsed.isTimed ? 0.96 : 0.42))
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        ForEach(Array(entry.translations.enumerated()), id: \.offset) { _, translation in
+                                            Text(translation)
+                                                .font(.system(size: 12, weight: current == entry.id ? .medium : .regular))
+                                                .foregroundStyle(.secondary.opacity(current == entry.id ? 0.82 : 0.58))
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        if let time = model.parsed.lines.first(where: { $0.id == entry.id })?.time {
+                                            library.player.seek(to: max(0, time))
+                                        }
+                                    }
+                                    .id(entry.id)
+                                    .animation(.easeInOut(duration: 0.24), value: current)
+                                }
+                            }
+                            .padding(.horizontal, 22)
+                            .padding(.top, geometry.size.height * 0.2)
+                            .padding(.bottom, geometry.size.height * 0.8)
                         }
-                    }.padding(.vertical, 100)
-                }
-                .padding(.horizontal, 8)
-                .animation(.easeInOut(duration: 0.25), value: current)
-                .onChange(of: current) { _, index in
-                    guard follow, term.isEmpty, let index else { return }
-                    withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(model.parsed.lines[index].id, anchor: .center) }
+                    }
+                    .scrollIndicators(.hidden)
+                    .onChange(of: current) { _, index in
+                        guard follow, model.parsed.isTimed, let index else { return }
+                        withAnimation(.easeInOut(duration: 0.38)) {
+                            proxy.scrollTo(index, anchor: UnitPoint(x: 0.5, y: 0.2))
+                        }
+                    }
+                    .onChange(of: model.parsed.lines) { _, _ in
+                        guard let current else { return }
+                        withAnimation(.easeInOut(duration: 0.35)) {
+                            proxy.scrollTo(current, anchor: UnitPoint(x: 0.5, y: 0.2))
+                        }
+                    }
+                    .onAppear {
+                        if let current { proxy.scrollTo(current, anchor: UnitPoint(x: 0.5, y: 0.2)) }
+                    }
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: track?.guid) { await model.load(trackGUID: track?.guid) }
+        .onChange(of: model.selectedGUID) { _, _ in model.select() }
+        .accessibilityIdentifier("FnMusic.LyricsPanel")
+    }
+
+    private func panelHeader(model: LyricsViewModel) -> some View {
+        HStack(spacing: 8) {
+            Spacer(minLength: 0)
+            if model.variants.count > 1 {
+                Menu {
+                    ForEach(model.variants) { lyric in
+                        Button {
+                            model.selectedGUID = lyric.guid
+                        } label: {
+                            Text("来源 \(lyric.source.map(String.init) ?? "未知") · \(lyric.guid.suffix(4))")
+                        }
+                    }
+                    Divider()
+                    Toggle("跟随播放", isOn: $follow)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .accessibilityLabel("歌词选项")
+            }
+            Button { library.rightPanel = nil } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .help("收起歌词")
+            .accessibilityLabel("收起歌词")
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .frame(height: PageToolbarMetrics.height)
+    }
+
+    private func displayEntries(_ lines: [LyricLine]) -> [Entry] {
+        var entries: [Entry] = []
+        var precedingTimedEntry: Int?
+        for line in lines {
+            if line.time == nil, let precedingTimedEntry {
+                entries[precedingTimedEntry].translations.append(line.text)
+            } else {
+                entries.append(Entry(id: line.id, text: line.text))
+                precedingTimedEntry = line.time == nil ? nil : entries.count - 1
+            }
+        }
+        return entries
     }
 }

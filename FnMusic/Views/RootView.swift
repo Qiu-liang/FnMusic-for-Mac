@@ -14,12 +14,13 @@ struct RootView: View {
             let sidebarVisible = library.columnVisibility != .detailOnly
             let docked = QueueSidebarMetrics.isDocked(windowWidth: geometry.size.width, sidebarVisible: sidebarVisible)
             let panelWidth = QueueSidebarMetrics.width(windowWidth: geometry.size.width, sidebarVisible: sidebarVisible)
-            let reservedWidth = library.showQueue && docked ? panelWidth : 0
+            let panelOpen = library.rightPanel != nil
+            let reservedWidth = panelOpen && docked ? panelWidth : 0
             ZStack(alignment: .bottom) {
                 HStack(spacing: 0) {
                     catalogPane.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if library.showQueue && docked {
-                        QueueSidebar().frame(width: panelWidth)
+                    if panelOpen && docked {
+                        RightSidebar().frame(width: panelWidth)
                             .transition(.move(edge: .trailing))
                     }
                 }
@@ -27,8 +28,8 @@ struct RootView: View {
                 // width. This unmasked drawer is the ONLY compact fallback;
                 // normal desktop sizes above use real, space-consuming columns.
                 .overlay(alignment: .trailing) {
-                    if library.showQueue && !docked {
-                        QueueSidebar().frame(width: panelWidth)
+                    if panelOpen && !docked {
+                        RightSidebar().frame(width: panelWidth)
                             .padding(.bottom, PlayerBarMetrics.contentClearance)
                             .transition(.move(edge: .trailing))
                     }
@@ -41,7 +42,8 @@ struct RootView: View {
                     .padding(.trailing, reservedWidth)
                     .zIndex(20)
             }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: library.showQueue)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: panelOpen)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: library.rightPanel)
             .clipped()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -49,9 +51,6 @@ struct RootView: View {
         .toolbar(removing: .sidebarToggle)
         .toolbarBackground(.hidden, for: .windowToolbar)
         .ignoresSafeArea(.container, edges: .top)
-        .sheet(isPresented: $library.showLyrics) {
-            LyricsView(service: LyricsService(client: library.client)).environment(library)
-        }
         .onChange(of: app.selection) { _, _ in library.resetNavigation() }
         .onChange(of: actions.revision) { _, _ in Task { await library.search.clear() } }
         .onChange(of: library.downloads.message) { _, message in

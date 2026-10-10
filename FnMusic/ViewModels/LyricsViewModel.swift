@@ -8,14 +8,17 @@ final class LyricsViewModel {
     var error: String?
     var variants: [Lyric] = []
     var selectedGUID: String?
+    private var loadedTrackGUID: String?
     private let service: any LyricsServiceProtocol
     private var generation = UUID()
 
     init(service: any LyricsServiceProtocol) { self.service = service }
 
     func load(trackGUID: String?) async {
+        guard trackGUID != loadedTrackGUID else { return }
         let identity = UUID()
         generation = identity
+        loadedTrackGUID = nil
         parsed = ParsedLyrics(lines: [])
         variants = []
         error = nil
@@ -31,6 +34,7 @@ final class LyricsViewModel {
             variants = response.list
             selectedGUID = response.selected?.guid
             select()
+            loadedTrackGUID = trackGUID
         } catch is CancellationError { }
         catch { if generation == identity { self.error = error.localizedDescription } }
     }

@@ -115,16 +115,22 @@ struct PlayerBar: View {
 
     private var accessoryControls: some View {
         HStack(spacing: 4) {
-            Button { library.showLyrics.toggle() } label: {
+            Button { library.rightPanel = library.rightPanel == .lyrics ? nil : .lyrics } label: {
                 Image(systemName: "quote.bubble").frame(width: 28, height: 32)
-            }.help("歌词").accessibilityLabel("歌词").disabled(library.player.currentTrack == nil)
-            Button { library.showQueue.toggle() } label: {
-                Image(systemName: "list.bullet").frame(width: 28, height: 32)
-                    .foregroundStyle(library.showQueue ? Color.pink : .primary.opacity(0.85))
+                    .foregroundStyle(library.rightPanel == .lyrics ? Color.pink : .primary.opacity(0.85))
             }
-            .help(library.showQueue ? "收起待播清单" : "展开待播清单")
+            .help(library.rightPanel == .lyrics ? "收起歌词" : "展开歌词")
+            .accessibilityLabel("歌词")
+            .accessibilityValue(library.rightPanel == .lyrics ? "已展开" : "已收起")
+            .accessibilityIdentifier("FnMusic.LyricsToggle")
+            .disabled(library.player.currentTrack == nil)
+            Button { library.rightPanel = library.rightPanel == .queue ? nil : .queue } label: {
+                Image(systemName: "list.bullet").frame(width: 28, height: 32)
+                    .foregroundStyle(library.rightPanel == .queue ? Color.pink : .primary.opacity(0.85))
+            }
+            .help(library.rightPanel == .queue ? "收起待播清单" : "展开待播清单")
             .accessibilityLabel("播放队列")
-            .accessibilityValue(library.showQueue ? "已展开" : "已收起")
+            .accessibilityValue(library.rightPanel == .queue ? "已展开" : "已收起")
             .accessibilityIdentifier("FnMusic.QueueToggle")
             AudioRoutePicker(player: library.player).frame(width: 28, height: 28)
             Button { showVolume.toggle() } label: {
