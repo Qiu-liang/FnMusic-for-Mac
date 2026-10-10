@@ -18,7 +18,8 @@ FnMusic 直接连接用户提供的飞牛音乐服务器，读取真实的歌曲
 - 歌单创建、重命名、删除及歌曲增删属于**默认关闭的实验性写入功能**，需要在设置中显式开启并由用户逐次触发。
 
 ## 应用截图
-![Uploading 2e37f87596b58c76630acf7c9491086e.png…]()
+<img width="1371" height="993" alt="2e37f87596b58c76630acf7c9491086e" src="https://github.com/user-attachments/assets/d567bc99-3858-4511-b338-875d16e44e59" />
+
 
 
 ## 系统要求
