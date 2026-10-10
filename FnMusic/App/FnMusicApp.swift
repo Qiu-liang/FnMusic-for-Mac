@@ -20,6 +20,7 @@ struct FnMusicApp: App {
             .frame(minWidth: 820, minHeight: 600)
             .tint(.pink)
             .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
+            .focusEffectDisabled()
             .task {
                 #if DEBUG
                 // Hosted tests inject their own clients/windows. Never let test
@@ -56,6 +57,7 @@ struct FnMusicApp: App {
         Settings {
             SettingsView().environment(app).tint(.pink)
                 .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
+                .focusEffectDisabled()
         }
     }
 }
