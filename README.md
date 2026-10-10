@@ -43,33 +43,18 @@ FnMusic 直接连接用户提供的飞牛音乐服务器，读取真实的歌曲
 
 客户端会自动请求 `/music/api/v1`，地址栏中不要附加 API 路径、token、用户名或密码。`/music/` 入口会被规范化为服务器 origin；其它反向代理子路径暂不支持。客户端拒绝 HTTP 重定向，请直接填写最终地址。
 
-### 命令行构建与测试
+### 命令行构建
 
 ```bash
 xcodebuild -project FnMusic.xcodeproj -scheme FnMusic \
   -configuration Debug -derivedDataPath .build/DerivedData build
-
-xcodebuild -project FnMusic.xcodeproj -scheme FnMusic \
-  -configuration Debug -destination 'platform=macOS' \
-  -derivedDataPath .build/DerivedData test
 ```
-
-测试使用注入的网络客户端、本地 URLProtocol 和内存生成的 WAV，不会访问真实服务器，也不会修改用户资料库。UI 截图会写入 `.build/Snapshots`。
 
 ## API 兼容性与证据边界
 
 本项目API由官方网页端逆向得到，不包含后端实现。接口文档和实现以 `serverVersion 1.0.10` / `mediasrvVersion 0.8.43` 的验证范围为基础，不保证其它服务器版本、反向代理配置或权限模型完全兼容。
 
-建议先阅读：
-
-- [FnMusic API 说明](FnMusicAPI.md)：接口、鉴权、响应和最小接入示例。
-- [API Endpoint Matrix](Docs/APIEndpointMatrix.md)：接口、参数、权限和证据等级矩阵。
-- [Feature → API Mapping](Docs/FeatureAPIMapping.md)：功能与接口映射及延期策略。
-- [架构与模型契约](Docs/Architecture.md)。
-- [验证报告](Docs/Verification.md)。
-- [开发记录](Docs/DevelopmentLog.md)。
-
-文档中的版本标记不等于所有版本都稳定；低证据等级的接口不会被当作当前成功证据。客户端也不会自动执行扫描、purge、管理、上传、改密或播放事件上报。
+接口证据等级不等于所有版本都稳定；低证据等级的接口不会被当作当前成功证据。客户端也不会自动执行扫描、purge、管理、上传、改密或播放事件上报。
 
 ## 安全与隐私
 
@@ -80,11 +65,11 @@ xcodebuild -project FnMusic.xcodeproj -scheme FnMusic \
 - 播放音频不作为离线缓存持久化；下载必须由用户在保存面板中明确选择目标位置。
 - 本工程尚未启用 App Sandbox，也未配置 Mac App Store 分发；请在你自己的环境中评估权限和签名策略。
 
-请不要在 Issue、Pull Request、截图或日志中提交真实服务器地址、用户名、密码、token、Cookie、私人媒体路径或账号数据。仓库中的测试域名、token 和媒体路径均为测试占位值。
+请不要在 Issue、Pull Request、截图或日志中提交真实服务器地址、用户名、密码、token、Cookie、私人媒体路径或账号数据。文档与示例中出现的域名、token 和媒体路径均为占位值。
 
 ## 已知限制
 
-- 未提供真实服务器或账号；现有测试不能替代特定 NAS、代理、非空收藏/历史和写接口的验收。
+- 未提供真实服务器或账号；本项目现有验证不能替代特定 NAS、代理、非空收藏/历史和写接口的验收。
 - 音频格式兼容性由 macOS 决定；真实 NAS 上的 FLAC/MP3 Range 播放仍需自行验证。CUE 虚拟分轨、HLS 和转码会话暂不支持。
 - 当前要求服务器正确返回音频 Range `206`；忽略 Range 并返回整文件 `200` 的服务端会被拒绝。
 - 搜索、歌单分页和部分历史/收藏接口的服务端上限尚未完全确认。
@@ -94,7 +79,7 @@ xcodebuild -project FnMusic.xcodeproj -scheme FnMusic \
 ## 工程结构
 
 ```text
-FnMusic.xcodeproj/        Xcode application + XCTest targets
+FnMusic.xcodeproj/        Xcode 应用工程
 FnMusic/
   App/                    应用状态、会话和依赖容器
   Core/                   网络、认证、Keychain 和图片缓存
@@ -104,9 +89,6 @@ FnMusic/
   ViewModels/             分页、连接、搜索和动作状态
   Views/                  macOS 原生页面、设置和播放器
   Resources/              Info.plist 和原创图标资源
-Tests/                    单元、媒体集成和 UI 测试
-Docs/                     API、架构、开发记录和验证说明
-Tools/                    图标生成等开发辅助脚本
 ```
 
 ## 参与贡献
@@ -114,9 +96,8 @@ Tools/                    图标生成等开发辅助脚本
 欢迎提交 Issue 或 Pull Request。提交前请：
 
 1. 不要包含真实凭据、服务器数据、构建产物或本地 Xcode 用户状态。
-2. 为网络、解析、播放器和状态变更补充可重复的注入测试。
-3. 说明所依赖的 macOS / Xcode 版本以及是否使用真实服务器验证。
-4. 涉及服务器写入时，先说明接口证据和失败时的回滚/读回策略。
+2. 说明所依赖的 macOS / Xcode 版本以及是否使用真实服务器验证。
+3. 涉及服务器写入时，先说明接口证据和失败时的回滚/读回策略。
 
 ## 许可证
 
