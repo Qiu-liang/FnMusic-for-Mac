@@ -137,7 +137,7 @@ struct RootView: View {
 
     @ViewBuilder private var destination: some View {
         switch app.selection ?? .home {
-        case .home: HomeView()
+        case .home: HomeView(service: library.music)
         case .albums: AlbumsView(service: library.music)
         case .artists: ArtistsView(model: library.artistBrowser)
         case .recentlyAdded: AlbumsView(service: library.music, recent: true)
