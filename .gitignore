@@ -30,6 +30,7 @@ Carthage/Build/
 *.xcarchive
 *.xcresult
 *.zip
+*.dmg
 Deliverables/
 
 # Local configuration, credentials, and logs

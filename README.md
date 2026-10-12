@@ -53,6 +53,16 @@ xcodebuild -project FnMusic.xcodeproj -scheme FnMusic \
   -configuration Debug -derivedDataPath .build/DerivedData build
 ```
 
+### 生成分发包
+
+在 macOS 上运行以下脚本，会构建 Release Universal 应用，并在 `dist/` 中生成 ZIP 和 DMG：
+
+```bash
+./scripts/build-release.sh
+```
+
+脚本要求安装 Xcode；DMG 内含 Applications 快捷入口，可将 FnMusic 拖入应用程序文件夹。
+
 ## API 兼容性与证据边界
 
 本项目API由官方网页端逆向得到，不包含后端实现。接口文档和实现以 `serverVersion 1.0.10` / `mediasrvVersion 0.8.43` 的验证范围为基础，不保证其它服务器版本、反向代理配置或权限模型完全兼容。
