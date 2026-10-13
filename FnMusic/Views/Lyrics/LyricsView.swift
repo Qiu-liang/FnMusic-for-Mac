@@ -4,6 +4,7 @@ import SwiftUI
 struct LyricsView: View {
     @Environment(LibraryContext.self) private var library
     @State private var follow = true
+    private let highlightAnchorY: CGFloat = 0.1
 
     private struct Entry: Identifiable {
         let id: Int
@@ -41,14 +42,14 @@ struct LyricsView: View {
                                 ForEach(entries) { entry in
                                     VStack(alignment: .leading, spacing: 6) {
                                         Text(entry.text)
-                                            .font(.system(size: current == entry.id ? 21 : 17,
+                                            .font(.system(size: current == entry.id ? 22 : 18,
                                                           weight: current == entry.id ? .bold : .semibold,
                                                           design: .rounded))
                                             .foregroundStyle(.primary.opacity(current == entry.id || !model.parsed.isTimed ? 0.96 : 0.42))
                                             .fixedSize(horizontal: false, vertical: true)
                                         ForEach(Array(entry.translations.enumerated()), id: \.offset) { _, translation in
                                             Text(translation)
-                                                .font(.system(size: 12, weight: current == entry.id ? .medium : .regular))
+                                                .font(.system(size: 13, weight: current == entry.id ? .medium : .regular))
                                                 .foregroundStyle(.secondary.opacity(current == entry.id ? 0.82 : 0.58))
                                                 .fixedSize(horizontal: false, vertical: true)
                                         }
@@ -65,25 +66,25 @@ struct LyricsView: View {
                                 }
                             }
                             .padding(.horizontal, 22)
-                            .padding(.top, geometry.size.height * 0.2)
-                            .padding(.bottom, geometry.size.height * 0.8)
+                            .padding(.top, geometry.size.height * highlightAnchorY)
+                            .padding(.bottom, geometry.size.height * (1 - highlightAnchorY))
                         }
                     }
                     .scrollIndicators(.hidden)
                     .onChange(of: current) { _, index in
                         guard follow, model.parsed.isTimed, let index else { return }
                         withAnimation(.easeInOut(duration: 0.38)) {
-                            proxy.scrollTo(index, anchor: UnitPoint(x: 0.5, y: 0.2))
+                            proxy.scrollTo(index, anchor: UnitPoint(x: 0.5, y: highlightAnchorY))
                         }
                     }
                     .onChange(of: model.parsed.lines) { _, _ in
                         guard let current else { return }
                         withAnimation(.easeInOut(duration: 0.35)) {
-                            proxy.scrollTo(current, anchor: UnitPoint(x: 0.5, y: 0.2))
+                            proxy.scrollTo(current, anchor: UnitPoint(x: 0.5, y: highlightAnchorY))
                         }
                     }
                     .onAppear {
-                        if let current { proxy.scrollTo(current, anchor: UnitPoint(x: 0.5, y: 0.2)) }
+                        if let current { proxy.scrollTo(current, anchor: UnitPoint(x: 0.5, y: highlightAnchorY)) }
                     }
                 }
             }
