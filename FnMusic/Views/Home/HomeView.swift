@@ -125,7 +125,7 @@ struct HomeView: View {
                                         onSeeAll: { app.selection = .playlists }) {
                         if !library.sidebarPlaylists.items.isEmpty {
                             ForEach(library.sidebarPlaylists.items.prefix(12)) { playlist in
-                                NavigationLink(value: LibraryRoute.playlist(playlist)) {
+                                Button { app.selection = .playlist(playlist.guid) } label: {
                                     HomeArtworkCard(coverId: playlist.coverId, title: playlist.displayName,
                                                     subtitle: playlist.trackCount.map { "\($0) 首歌曲" } ?? "播放列表",
                                                     cache: library.images)
@@ -258,13 +258,14 @@ private struct HomeCarouselSection<Content: View>: View {
     @State private var firstVisibleIndex = 0
     @State private var viewportWidth: CGFloat = 0
 
-    private let sideInset: CGFloat = 46
+    private let leadingInset: CGFloat = 0
+    private let trailingInset: CGFloat = 46
     private let spacing: CGFloat = 16
     private var spaceName: String { "HomeCarousel.\(title)" }
 
     private var visibleItemCount: Int {
         guard viewportWidth > 0 else { return 1 }
-        let usableWidth = max(HomeArtworkCard.size, viewportWidth - sideInset * 2)
+        let usableWidth = max(HomeArtworkCard.size, viewportWidth - leadingInset - trailingInset)
         return max(1, Int((usableWidth + spacing) / (HomeArtworkCard.size + spacing)))
     }
 
@@ -290,7 +291,8 @@ private struct HomeCarouselSection<Content: View>: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: spacing) { content }
-                        .padding(.horizontal, sideInset)
+                        .padding(.leading, leadingInset)
+                        .padding(.trailing, trailingInset)
                         .padding(.bottom, 3)
                         .background {
                             GeometryReader { geometry in
