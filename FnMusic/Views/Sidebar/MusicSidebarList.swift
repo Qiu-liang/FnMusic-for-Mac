@@ -75,14 +75,15 @@ struct MusicSidebarList: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView()
+        let scroll = MusicSidebarScrollView()
         scroll.drawsBackground = false
         scroll.borderType = .noBorder
-        scroll.hasVerticalScroller = true
+        scroll.hasVerticalScroller = false
         scroll.hasHorizontalScroller = false
         scroll.autohidesScrollers = true
         scroll.automaticallyAdjustsContentInsets = false
         scroll.contentInsets = .init(top: 0, left: 0, bottom: 0, right: 0)
+        scroll.verticalScrollElasticity = .none
         scroll.horizontalScrollElasticity = .none
 
         let table = MusicSidebarTableView(frame: NSRect(x: 0, y: 0, width: MusicSidebarMetrics.width, height: 1))
@@ -271,7 +272,13 @@ struct MusicSidebarList: NSViewRepresentable {
     }
 }
 
-final class MusicSidebarTableView: NSTableView {}
+final class MusicSidebarScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) {}
+}
+
+final class MusicSidebarTableView: NSTableView {
+    override func scrollWheel(with event: NSEvent) {}
+}
 
 final class MusicSidebarRowView: NSTableRowView {
     // The selection is neutral gray, so AppKit must not recolor its cells white.
