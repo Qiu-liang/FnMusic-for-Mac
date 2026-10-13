@@ -2,7 +2,7 @@ import SwiftUI
 import Observation
 
 enum PageContentInset { case scroll, padded }
-enum PageToolbarStyle: Equatable, Sendable { case standard, albumDetail }
+enum PageToolbarStyle: Equatable, Sendable { case standard, albumDetail, playlistDetail }
 
 enum PageToolbarMetrics {
     static let height: CGFloat = 52
@@ -164,6 +164,12 @@ private struct UnifiedPageToolbar<Options: View>: View {
                     .frame(width: PageToolbarMetrics.controlHeight, height: PageToolbarMetrics.controlHeight)
                     .modifier(FloatingTopControlGlass(shape: Circle()))
                 searchField
+            } else if style == .playlistDetail {
+                Spacer(minLength: 12)
+                pageOptionsMenu
+                    .frame(width: PageToolbarMetrics.controlHeight, height: PageToolbarMetrics.controlHeight)
+                    .modifier(FloatingTopControlGlass(shape: Circle()))
+                searchField
             } else {
                 Text(displayTitle ?? title)
                     .font(.system(size: 13, weight: .medium))
@@ -187,7 +193,7 @@ private struct UnifiedPageToolbar<Options: View>: View {
             }.allowsHitTesting(false)
         }
         .background {
-            if style != .albumDetail { FloatingTopBackdrop().allowsHitTesting(false) }
+            if style == .standard { FloatingTopBackdrop().allowsHitTesting(false) }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("FnMusic.UnifiedPageToolbar")
@@ -206,15 +212,15 @@ private struct UnifiedPageToolbar<Options: View>: View {
                 CommonPageOptions()
             }
         } label: {
-            Image(systemName: style == .albumDetail ? "ellipsis" : "line.3.horizontal.decrease")
-                .font(.system(size: style == .albumDetail ? 15 : 16, weight: .regular))
+            Image(systemName: style == .standard ? "line.3.horizontal.decrease" : "ellipsis")
+                .font(.system(size: style == .standard ? 16 : 15, weight: .regular))
                 .foregroundStyle(Color(nsColor: .labelColor))
                 .frame(width: PageToolbarMetrics.controlHeight, height: PageToolbarMetrics.controlHeight)
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden)
         .tint(Color(nsColor: .labelColor))
-        .help(style == .albumDetail ? "更多专辑操作" : "页面选项：排序、筛选及更多操作")
-        .accessibilityLabel(style == .albumDetail ? "更多专辑操作" : "\(title)页面选项")
+        .help(style == .standard ? "页面选项：排序、筛选及更多操作" : "更多操作")
+        .accessibilityLabel(style == .standard ? "\(title)页面选项" : "更多操作")
         .accessibilityIdentifier("FnMusic.PageOptions")
     }
 

@@ -47,12 +47,15 @@ struct LibraryDetailView: View {
         } else {
             MusicPageChrome(title: headerInfo.title, placeholder: "在已加载歌曲中查找", query: $controls.query,
                             inset: isAlbum ? .scroll : .padded,
-                            toolbarStyle: isAlbum ? .albumDetail : .standard) {
+                            toolbarStyle: isAlbum ? .albumDetail : (isPlaylist ? .playlistDetail : .standard)) {
                 TrackPageOptions(controls: controls, source: Self.trackSource(for: model.route))
             } content: {
                 if case .album(let album) = model.route {
                     AlbumDetailContent(album: album, service: library.music, controls: controls)
                         .id(album.guid)
+                } else if case .playlist(let playlist) = model.route {
+                    PlaylistDetailContent(playlist: playlist, service: library.music, controls: controls)
+                        .id(playlist.guid)
                 } else {
                     VStack(alignment: .leading, spacing: 0) {
                         if let error = model.error {
@@ -74,6 +77,11 @@ struct LibraryDetailView: View {
 
     private var isAlbum: Bool {
         if case .album = model.route { return true }
+        return false
+    }
+
+    private var isPlaylist: Bool {
+        if case .playlist = model.route { return true }
         return false
     }
 

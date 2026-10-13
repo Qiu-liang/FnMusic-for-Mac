@@ -26,10 +26,14 @@ struct TracksView: View {
         Group {
             if showsToolbar {
                 MusicPageChrome(title: title, placeholder: source == .library ? "在歌曲中查找" : "在已加载歌曲中查找",
-                                query: $controls.query) {
+                                query: $controls.query,
+                                toolbarStyle: source == .favorites ? .playlistDetail : .standard) {
                     TrackPageOptions(controls: controls, source: source)
                     if let sort = model.returnedSort { Text("服务器排序：\(sort)") }
-                } content: { scrollingContent }
+                } content: {
+                    if source == .favorites { favoritesDetailContent }
+                    else { scrollingContent }
+                }
             } else { scrollingContent }
         }
         .task(id: taskIdentity) { await updateRequest() }
@@ -53,6 +57,118 @@ struct TracksView: View {
                 }.padding(28)
             }
         }
+    }
+
+    private var favoritesDetailContent: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    favoritesHero.padding(.horizontal, 40)
+
+                    HStack {
+                        Text("歌曲")
+                        Spacer()
+                        Text("时长").padding(.trailing, 42)
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 50)
+                    .padding(.trailing, 22)
+                    .padding(.top, 42)
+                    .padding(.bottom, 12)
+
+                    Rectangle().fill(.primary.opacity(0.06)).frame(height: 0.5)
+                        .padding(.horizontal, 22)
+
+                    LoadStateView(isLoading: model.isLoading, isEmpty: visibleTracks.isEmpty,
+                                  error: model.items.isEmpty ? model.error : nil,
+                                  emptyTitle: controls.trimmedQuery.isEmpty ? "还没有喜爱的歌曲" : "没有匹配的歌曲") {
+                        controls.refresh()
+                    }
+                    .padding(.horizontal, 40)
+
+                    TrackList(tracks: visibleTracks, scrollProxy: proxy, rowStyle: .collectionDetail)
+                        .padding(.horizontal, 22)
+                    PageFooter(model: model)
+                }
+                .padding(.bottom, PlayerBarMetrics.contentClearance + 18)
+            }
+            .scrollIndicators(.visible)
+        }
+    }
+
+    private var favoritesHero: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 32) {
+                favoritesArtwork(size: 270)
+                favoritesInformation(height: 270)
+            }
+            HStack(alignment: .center, spacing: 24) {
+                favoritesArtwork(size: 190)
+                favoritesInformation(height: 190)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func favoritesArtwork(size: CGFloat) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12).fill(Color.pink.opacity(0.11))
+            Image(systemName: "star.fill")
+                .font(.system(size: size * 0.34, weight: .medium))
+                .foregroundStyle(.pink)
+        }
+        .frame(width: size, height: size)
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.primary.opacity(0.045), lineWidth: 0.5))
+        .accessibilityLabel("喜爱歌曲")
+    }
+
+    private func favoritesInformation(height: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Spacer(minLength: 0)
+            Text("喜爱歌曲")
+                .font(.system(size: 29, weight: .bold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            HStack(spacing: 10) {
+                collectionActionButton("shuffle", title: "随机播放") { playFavorites(shuffle: true) }
+                Button { playFavorites(shuffle: false) } label: {
+                    Label("播放", systemImage: "play.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 112, height: 34)
+                        .background(Color.primary.opacity(0.065), in: Capsule())
+                }
+                .buttonStyle(.plain).foregroundStyle(.pink).disabled(visibleTracks.isEmpty)
+                Menu {
+                    ForEach(model.items) { track in
+                        Button("下载：\(track.displayTitle)…") { library.downloads.download(track) }
+                    }
+                } label: {
+                    Image(systemName: "arrow.down").font(.system(size: 13, weight: .semibold))
+                        .frame(width: 34, height: 34).background(Color.primary.opacity(0.065), in: Circle())
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .help("下载已加载的喜爱歌曲")
+                .disabled(model.items.isEmpty || library.downloads.isPreparing || library.downloads.isDownloading)
+            }
+            .padding(.bottom, 1)
+        }
+        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
+    }
+
+    private func collectionActionButton(_ symbol: String, title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 13, weight: .semibold))
+                .frame(width: 34, height: 34).background(Color.primary.opacity(0.065), in: Circle())
+        }
+        .buttonStyle(.plain).foregroundStyle(.pink).help(title).accessibilityLabel(title)
+        .disabled(visibleTracks.isEmpty)
+    }
+
+    private func playFavorites(shuffle: Bool) {
+        let tracks = visibleTracks
+        guard let track = shuffle ? tracks.randomElement() : tracks.first else { return }
+        library.player.queue.shuffle = shuffle
+        library.player.play(track, in: tracks)
     }
 
     private var visibleTracks: [Track] {
@@ -128,62 +244,42 @@ struct TrackPageOptions: View {
     }
 }
 
+enum TrackListRowStyle: Equatable {
+    case standard
+    case collectionDetail
+}
+
 struct TrackList: View {
     @Environment(LibraryContext.self) private var library
     let tracks: [Track]
     var playlistGUID: String? = nil
     var scrollProxy: ScrollViewProxy? = nil
+    var rowStyle: TrackListRowStyle = .standard
     @State private var removing: Track?
     @State private var selected: String?
 
     var body: some View {
         LazyVStack(spacing: 0) {
             ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
-                HStack(spacing: 12) {
-                    Button { library.player.play(track, in: tracks) } label: {
-                        Image(systemName: library.player.currentTrack?.guid == track.guid && library.player.isPlaying ? "waveform" : "play.fill")
-                            .font(.caption).frame(width: 28)
-                    }.buttonStyle(.plain).foregroundStyle(.pink).help("播放")
-                    ArtworkView(coverId: track.coverId, cache: library.images, size: 160)
-                        .frame(width: 42, height: 42)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(track.displayTitle).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                        Text(track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                    Text(track.album?.displayName ?? "").font(.caption).foregroundStyle(.secondary)
-                        .lineLimit(1).frame(maxWidth: 220, alignment: .leading)
-                    if library.actions.busyTracks.contains(track.guid) {
-                        ProgressView().controlSize(.mini)
-                    } else if library.actions.isFavorite(track) {
-                        Image(systemName: "star.fill").font(.caption).foregroundStyle(.pink)
+                rowContent(track)
+                .padding(.horizontal, rowStyle == .collectionDetail ? 0 : 10)
+                .padding(.vertical, rowStyle == .collectionDetail ? 7 : 8)
+                .background {
+                    if selected == track.guid {
+                        RoundedRectangle(cornerRadius: 7).fill(Color.accentColor.opacity(0.1))
+                    } else if rowStyle == .standard && index.isMultiple(of: 2) {
+                        RoundedRectangle(cornerRadius: 7).fill(Color.primary.opacity(0.025))
                     }
-                    Text(track.durationSeconds.playbackTime).monospacedDigit().font(.caption).foregroundStyle(.secondary)
-                        .frame(width: 45, alignment: .trailing)
                 }
-                .padding(.horizontal, 10).padding(.vertical, 8)
-                .background(selected == track.guid ? Color.accentColor.opacity(0.1) : (index.isMultiple(of: 2) ? Color.primary.opacity(0.025) : .clear), in: RoundedRectangle(cornerRadius: 7))
+                .overlay(alignment: .bottom) {
+                    if rowStyle == .collectionDetail {
+                        Rectangle().fill(.primary.opacity(0.075)).frame(height: 0.5).padding(.leading, 58)
+                    }
+                }
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { library.player.play(track, in: tracks) }
                 .onTapGesture { selected = track.guid }
-                .contextMenu {
-                    Button("播放") { library.player.play(track, in: tracks) }
-                    Button("下一首播放") { library.player.queue.insertNext(track) }
-                    Button("添加到队列") { library.player.queue.append(track) }
-                    Divider()
-                    Button(library.actions.isFavorite(track) ? "取消收藏（实验性）" : "收藏（实验性）") {
-                        Task { await library.actions.toggleFavorite(track) }
-                    }.disabled(library.actions.busyTracks.contains(track.guid))
-                    Button("添加到歌单（实验性）") {
-                        if library.actions.experimentalWrites { library.actions.pendingPlaylistTrack = track }
-                        else { library.actions.error = "请先在设置中启用实验性写操作。" }
-                    }
-                    if playlistGUID != nil {
-                        Button("从此歌单移除（实验性）", role: .destructive) { removing = track }
-                    }
-                    Divider()
-                    if let album = track.album { Button("查看专辑") { library.navigation.append(.album(album)) } }
-                    if let artist = track.artists?.first { Button("查看艺人") { library.navigation.append(.artist(artist)) } }
-                }
+                .contextMenu { trackActions(for: track) }
                 .accessibilityElement(children: .combine)
                 .id(track.guid)
             }
@@ -209,6 +305,92 @@ struct TrackList: View {
         .onKeyPress(.downArrow) { moveSelection(1); return .handled }
         .onKeyPress(.upArrow) { moveSelection(-1); return .handled }
         .onKeyPress(.space) { library.player.toggle(); return .handled }
+    }
+
+    @ViewBuilder private func rowContent(_ track: Track) -> some View {
+        if rowStyle == .collectionDetail {
+            HStack(spacing: 12) {
+                Button {
+                    if library.actions.experimentalWrites {
+                        Task { await library.actions.toggleFavorite(track) }
+                    } else {
+                        library.actions.error = "请先在设置中启用实验性写操作。"
+                    }
+                } label: {
+                    Group {
+                        if library.actions.busyTracks.contains(track.guid) { ProgressView().controlSize(.mini) }
+                        else { Image(systemName: library.actions.isFavorite(track) ? "star.fill" : "star") }
+                    }
+                    .font(.system(size: 13))
+                    .foregroundStyle(library.actions.isFavorite(track) ? Color.pink : Color.secondary)
+                    .frame(width: 16, height: 26)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .opacity(library.actions.isFavorite(track) ? 1 : 0.55)
+                .help(library.actions.isFavorite(track) ? "取消收藏" : "收藏歌曲")
+                .disabled(library.actions.busyTracks.contains(track.guid))
+
+                ArtworkView(coverId: track.coverId, cache: library.images, size: 160)
+                    .frame(width: 42, height: 42)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(track.displayTitle).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                    Text([track.album?.displayName, track.artistText].compactMap { $0 }.joined(separator: " – "))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(track.durationSeconds.playbackTime).monospacedDigit().font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 50, alignment: .trailing)
+                Menu { trackActions(for: track) } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary).frame(width: 24, height: 28)
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden)
+                .accessibilityLabel("\(track.displayTitle)更多操作")
+            }
+        } else {
+            HStack(spacing: 12) {
+                Button { library.player.play(track, in: tracks) } label: {
+                    Image(systemName: library.player.currentTrack?.guid == track.guid && library.player.isPlaying ? "waveform" : "play.fill")
+                        .font(.caption).frame(width: 28)
+                }.buttonStyle(.plain).foregroundStyle(.pink).help("播放")
+                ArtworkView(coverId: track.coverId, cache: library.images, size: 160)
+                    .frame(width: 42, height: 42)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(track.displayTitle).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                    Text(track.artistText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                Text(track.album?.displayName ?? "").font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).frame(maxWidth: 220, alignment: .leading)
+                if library.actions.busyTracks.contains(track.guid) {
+                    ProgressView().controlSize(.mini)
+                } else if library.actions.isFavorite(track) {
+                    Image(systemName: "star.fill").font(.caption).foregroundStyle(.pink)
+                }
+                Text(track.durationSeconds.playbackTime).monospacedDigit().font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 45, alignment: .trailing)
+            }
+        }
+    }
+
+    @ViewBuilder private func trackActions(for track: Track) -> some View {
+        Button("播放") { library.player.play(track, in: tracks) }
+        Button("下一首播放") { library.player.queue.insertNext(track) }
+        Button("添加到队列") { library.player.queue.append(track) }
+        Divider()
+        Button(library.actions.isFavorite(track) ? "取消收藏（实验性）" : "收藏（实验性）") {
+            Task { await library.actions.toggleFavorite(track) }
+        }.disabled(library.actions.busyTracks.contains(track.guid))
+        Button("添加到歌单（实验性）") {
+            if library.actions.experimentalWrites { library.actions.pendingPlaylistTrack = track }
+            else { library.actions.error = "请先在设置中启用实验性写操作。" }
+        }
+        if playlistGUID != nil {
+            Button("从此歌单移除（实验性）", role: .destructive) { removing = track }
+        }
+        Divider()
+        if let album = track.album { Button("查看专辑") { library.navigation.append(.album(album)) } }
+        if let artist = track.artists?.first { Button("查看艺人") { library.navigation.append(.artist(artist)) } }
     }
 
     private func moveSelection(_ offset: Int) {
