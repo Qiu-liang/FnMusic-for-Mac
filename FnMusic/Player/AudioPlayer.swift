@@ -30,7 +30,7 @@ final class AudioPlayer {
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var wantsPlayback = false
 
-    init(client: APIClient) {
+    init(client: APIClient, artworkCache: ImageCache) {
         self.client = client
         if let stored = UserDefaults.standard.object(forKey: "defaultVolume") as? Double { volume = min(1, max(0, stored)) }
         queue.repeatMode = RepeatMode(rawValue: UserDefaults.standard.string(forKey: "defaultRepeat") ?? "off") ?? .off
@@ -47,7 +47,7 @@ final class AudioPlayer {
                 self.media?.update(player: self)
             }
         }
-        media = MediaSession(player: self)
+        media = MediaSession(player: self, artworkCache: artworkCache)
     }
 
     func play(_ track: Track, in tracks: [Track]? = nil) {

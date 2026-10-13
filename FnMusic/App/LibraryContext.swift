@@ -52,20 +52,21 @@ final class LibraryContext {
     }
 
     init(client: APIClient, user: User) {
+        let artworkCache = ImageCache(client: client, namespace: client.origin.absoluteString + "|" + user.guid)
         self.client = client
         self.music = MusicService(client: client)
         self.playlists = PlaylistService(client: client)
         self.sidebarPlaylists = PlaylistListViewModel(service: PlaylistService(client: client))
         self.browse = BrowseService(client: client)
         self.search = SearchService(client: client)
-        self.player = AudioPlayer(client: client)
+        self.player = AudioPlayer(client: client, artworkCache: artworkCache)
         self.queuePanel = QueuePanelState(service: MusicService(client: client))
         self.lyricsPanel = LyricsViewModel(service: LyricsService(client: client))
         self.actions = LibraryActions(favoriteService: FavoriteService(client: client))
         self.playlistMutations = PlaylistMutationService(client: client)
         self.artistBrowser = ArtistBrowserViewModel(music: MusicService(client: client), search: ArtistSearchService(client: client))
         self.downloads = DownloadViewModel(service: TrackDownloadService(client: client))
-        self.images = ImageCache(client: client, namespace: client.origin.absoluteString + "|" + user.guid)
+        self.images = artworkCache
     }
 }
 
