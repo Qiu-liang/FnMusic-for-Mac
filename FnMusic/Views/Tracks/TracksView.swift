@@ -27,11 +27,11 @@ struct TracksView: View {
             if showsToolbar {
                 MusicPageChrome(title: title, placeholder: source == .library ? "在歌曲中查找" : "在已加载歌曲中查找",
                                 query: $controls.query,
-                                toolbarStyle: source == .favorites ? .playlistDetail : .standard) {
+                                toolbarStyle: isCollectionDetail ? .playlistDetail : .standard) {
                     TrackPageOptions(controls: controls, source: source)
                     if let sort = model.returnedSort { Text("服务器排序：\(sort)") }
                 } content: {
-                    if source == .favorites { favoritesDetailContent }
+                    if isCollectionDetail { collectionDetailContent }
                     else { scrollingContent }
                 }
             } else { scrollingContent }
@@ -59,11 +59,11 @@ struct TracksView: View {
         }
     }
 
-    private var favoritesDetailContent: some View {
+    private var collectionDetailContent: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    favoritesHero.padding(.horizontal, 40)
+                    collectionHero.padding(.horizontal, 40)
 
                     HStack {
                         Text("歌曲")
@@ -82,7 +82,7 @@ struct TracksView: View {
 
                     LoadStateView(isLoading: model.isLoading, isEmpty: visibleTracks.isEmpty,
                                   error: model.items.isEmpty ? model.error : nil,
-                                  emptyTitle: controls.trimmedQuery.isEmpty ? "还没有喜爱的歌曲" : "没有匹配的歌曲") {
+                                  emptyTitle: emptyCollectionTitle) {
                         controls.refresh()
                     }
                     .padding(.horizontal, 40)
@@ -97,41 +97,41 @@ struct TracksView: View {
         }
     }
 
-    private var favoritesHero: some View {
+    private var collectionHero: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .center, spacing: 32) {
-                favoritesArtwork(size: 270)
-                favoritesInformation(height: 270)
+                collectionArtwork(size: 270)
+                collectionInformation(height: 270)
             }
             HStack(alignment: .center, spacing: 24) {
-                favoritesArtwork(size: 190)
-                favoritesInformation(height: 190)
+                collectionArtwork(size: 190)
+                collectionInformation(height: 190)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func favoritesArtwork(size: CGFloat) -> some View {
+    private func collectionArtwork(size: CGFloat) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 12).fill(Color.pink.opacity(0.11))
-            Image(systemName: "star.fill")
+            RoundedRectangle(cornerRadius: 12).fill(collectionTint.opacity(0.11))
+            Image(systemName: collectionSymbol)
                 .font(.system(size: size * 0.34, weight: .medium))
-                .foregroundStyle(.pink)
+                .foregroundStyle(collectionTint)
         }
         .frame(width: size, height: size)
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(.primary.opacity(0.045), lineWidth: 0.5))
-        .accessibilityLabel("喜爱歌曲")
+        .accessibilityLabel(collectionTitle)
     }
 
-    private func favoritesInformation(height: CGFloat) -> some View {
+    private func collectionInformation(height: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer(minLength: 0)
-            Text("喜爱歌曲")
+            Text(collectionTitle)
                 .font(.system(size: 29, weight: .bold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             HStack(spacing: 10) {
-                collectionActionButton("shuffle", title: "随机播放") { playFavorites(shuffle: true) }
-                Button { playFavorites(shuffle: false) } label: {
+                collectionActionButton("shuffle", title: "随机播放") { playCollection(shuffle: true) }
+                Button { playCollection(shuffle: false) } label: {
                     Label("播放", systemImage: "play.fill")
                         .font(.system(size: 13, weight: .semibold))
                         .frame(width: 112, height: 34)
@@ -147,7 +147,7 @@ struct TracksView: View {
                         .frame(width: 34, height: 34).background(Color.primary.opacity(0.065), in: Circle())
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .help("下载已加载的喜爱歌曲")
+                .help("下载已加载的\(collectionTitle)")
                 .disabled(model.items.isEmpty || library.downloads.isPreparing || library.downloads.isDownloading)
             }
             .padding(.bottom, 1)
@@ -164,11 +164,20 @@ struct TracksView: View {
         .disabled(visibleTracks.isEmpty)
     }
 
-    private func playFavorites(shuffle: Bool) {
+    private func playCollection(shuffle: Bool) {
         let tracks = visibleTracks
         guard let track = shuffle ? tracks.randomElement() : tracks.first else { return }
         library.player.queue.shuffle = shuffle
         library.player.play(track, in: tracks)
+    }
+
+    private var isCollectionDetail: Bool { source == .favorites || source == .history }
+    private var collectionTitle: String { source == .favorites ? "喜爱歌曲" : "最近播放" }
+    private var collectionSymbol: String { source == .favorites ? "star.fill" : "clock.arrow.circlepath" }
+    private var collectionTint: Color { source == .favorites ? .pink : .indigo }
+    private var emptyCollectionTitle: String {
+        let title = source == .favorites ? "还没有喜爱的歌曲" : "暂无最近播放记录"
+        return controls.trimmedQuery.isEmpty ? title : "没有匹配的歌曲"
     }
 
     private var visibleTracks: [Track] {
@@ -210,7 +219,7 @@ struct TracksView: View {
         switch source {
         case .library: "歌曲"
         case .favorites: "喜爱歌曲"
-        case .history: "播放历史"
+        case .history: "最近播放"
         case .album: "专辑歌曲"
         case .artist: "艺人歌曲"
         case .playlist: "播放列表"

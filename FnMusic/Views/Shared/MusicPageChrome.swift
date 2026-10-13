@@ -2,7 +2,7 @@ import SwiftUI
 import Observation
 
 enum PageContentInset { case scroll, padded }
-enum PageToolbarStyle: Equatable, Sendable { case standard, albumDetail, playlistDetail }
+enum PageToolbarStyle: Equatable, Sendable { case standard, albumDetail, playlistDetail, hidden }
 
 enum PageToolbarMetrics {
     static let height: CGFloat = 52
@@ -75,7 +75,7 @@ struct WindowPageToolbar: View {
     let host: WindowPageToolbarHost
 
     var body: some View {
-        if let page = host.current {
+        if let page = host.current, page.style != .hidden {
             UnifiedPageToolbar(title: page.title, placeholder: page.placeholder,
                                query: page.query, displayTitle: page.displayTitle, style: page.style,
                                showsCommonOptions: true) { page.options() }
@@ -122,7 +122,7 @@ struct MusicPageChrome<Options: View, Content: View>: View {
                 case .padded: content.padding(.top, PageToolbarMetrics.height)
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            if windowHost == nil || !showsCommonOptions {
+            if (windowHost == nil || !showsCommonOptions) && toolbarStyle != .hidden {
                 UnifiedPageToolbar(title: title, placeholder: placeholder, query: $query,
                                    displayTitle: displayTitle, style: toolbarStyle,
                                    showsCommonOptions: showsCommonOptions) { options() }

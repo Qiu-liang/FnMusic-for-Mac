@@ -4,12 +4,15 @@ struct HomeView: View {
     @Environment(AppState.self) private var app
     @Environment(LibraryContext.self) private var library
     @State private var query = ""
-    @State private var refreshRevision = 0
+    @State private var isRoaming = false
+    @State private var roamTask: Task<Void, Never>?
     @State private var history: PagedViewModel<Track>
     @State private var albums: PagedViewModel<Album>
     @State private var tracks: PagedViewModel<Track>
+    private let service: any MusicServiceProtocol
 
     init(service: any MusicServiceProtocol) {
+        self.service = service
         _history = State(initialValue: PagedViewModel(sort: TrackSource.history.defaultSort) { page, sort in
             try await service.tracks(page: page, sort: sort, source: .history)
         })
@@ -22,16 +25,49 @@ struct HomeView: View {
     }
 
     var body: some View {
-        MusicPageChrome(title: "主页", placeholder: "在首页内容中查找", query: $query) {
-            Button("刷新首页", systemImage: "arrow.clockwise") { refreshRevision &+= 1 }
-            Text("搜索仅筛选当前已加载的首页内容。")
+        MusicPageChrome(title: "主页", placeholder: "", query: $query, inset: .padded, toolbarStyle: .hidden) {
+            EmptyView()
         } content: {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
-                    HomeCarouselSection(title: "最近播放", itemIDs: filteredHistory.prefix(12).map(\.guid),
+                    Text("主页")
+                        .font(.system(size: 32, weight: .bold))
+                        .padding(.bottom, -10)
+
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("专属精选推荐").font(.title3.weight(.semibold))
+                        GeometryReader { geometry in
+                            let cardSpacing: CGFloat = 20
+                            let cardWidth = max(0, (geometry.size.width - cardSpacing * 3) / 4)
+                            HStack(alignment: .top, spacing: cardSpacing) {
+                                HomeShortcutCard(title: "漫游", subtitle: isRoaming ? "正在读取音乐库…" : "随机播放音乐库中的所有歌曲",
+                                                 symbol: "shuffle", colors: [Color(red: 0.34, green: 0.16, blue: 0.78), Color(red: 0.90, green: 0.32, blue: 0.58)],
+                                                 isBusy: isRoaming, action: startRoaming)
+                                    .frame(width: cardWidth)
+                                HomeShortcutCard(title: "收藏", subtitle: "打开喜爱的歌曲", symbol: "heart.fill",
+                                                 colors: [Color(red: 0.97, green: 0.23, blue: 0.55), Color(red: 0.84, green: 0.18, blue: 0.48)]) {
+                                    app.selection = .favorites
+                                }
+                                .frame(width: cardWidth)
+                                HomeShortcutCard(title: "最近播放", subtitle: "查看听过的歌曲", symbol: "clock.arrow.circlepath",
+                                                 colors: [Color(red: 0.12, green: 0.34, blue: 0.50), Color(red: 0.10, green: 0.18, blue: 0.24)]) {
+                                    app.selection = .recent
+                                }
+                                .frame(width: cardWidth)
+                                HomeShortcutCard(title: "最近添加", subtitle: "浏览新加入的音乐", symbol: "sparkles",
+                                                 colors: [Color(red: 0.97, green: 0.34, blue: 0.38), Color(red: 0.94, green: 0.17, blue: 0.42)]) {
+                                    app.selection = .recentlyAdded
+                                }
+                                .frame(width: cardWidth)
+                            }
+                        }
+                        .frame(height: 342)
+                    }
+
+                    HomeCarouselSection(title: "最近播放", itemIDs: history.items.prefix(12).map(\.guid),
                                         onSeeAll: { app.selection = .recent }) {
-                        if !filteredHistory.isEmpty {
-                            ForEach(filteredHistory.prefix(12)) { track in
+                        if !history.items.isEmpty {
+                            ForEach(history.items.prefix(12)) { track in
                                 Button { library.player.play(track, in: history.items) } label: {
                                     HomeArtworkCard(coverId: track.album?.coverId ?? track.coverId,
                                                     title: track.displayTitle,
@@ -48,10 +84,10 @@ struct HomeView: View {
                         }
                     }
 
-                    HomeCarouselSection(title: "最近添加专辑", itemIDs: filteredAlbums.prefix(12).map(\.guid),
+                    HomeCarouselSection(title: "最近添加专辑", itemIDs: albums.items.prefix(12).map(\.guid),
                                         onSeeAll: { app.selection = .recentlyAdded }) {
-                        if !filteredAlbums.isEmpty {
-                            ForEach(filteredAlbums.prefix(12)) { album in
+                        if !albums.items.isEmpty {
+                            ForEach(albums.items.prefix(12)) { album in
                                 NavigationLink(value: LibraryRoute.album(album)) {
                                     HomeArtworkCard(coverId: album.coverId, title: album.displayName,
                                                     subtitle: album.artistText, cache: library.images)
@@ -65,10 +101,10 @@ struct HomeView: View {
                         }
                     }
 
-                    HomeCarouselSection(title: "最近添加歌曲", itemIDs: filteredTracks.prefix(12).map(\.guid),
+                    HomeCarouselSection(title: "最近添加歌曲", itemIDs: tracks.items.prefix(12).map(\.guid),
                                         onSeeAll: { app.selection = .tracks }) {
-                        if !filteredTracks.isEmpty {
-                            ForEach(filteredTracks.prefix(12)) { track in
+                        if !tracks.items.isEmpty {
+                            ForEach(tracks.items.prefix(12)) { track in
                                 Button { library.player.play(track, in: tracks.items) } label: {
                                     HomeArtworkCard(coverId: track.album?.coverId ?? track.coverId,
                                                     title: track.displayTitle,
@@ -85,10 +121,10 @@ struct HomeView: View {
                         }
                     }
 
-                    HomeCarouselSection(title: "歌单", itemIDs: filteredPlaylists.prefix(12).map(\.guid),
+                    HomeCarouselSection(title: "歌单", itemIDs: library.sidebarPlaylists.items.prefix(12).map(\.guid),
                                         onSeeAll: { app.selection = .playlists }) {
-                        if !filteredPlaylists.isEmpty {
-                            ForEach(filteredPlaylists.prefix(12)) { playlist in
+                        if !library.sidebarPlaylists.items.isEmpty {
+                            ForEach(library.sidebarPlaylists.items.prefix(12)) { playlist in
                                 NavigationLink(value: LibraryRoute.playlist(playlist)) {
                                     HomeArtworkCard(coverId: playlist.coverId, title: playlist.displayName,
                                                     subtitle: playlist.trackCount.map { "\($0) 首歌曲" } ?? "播放列表",
@@ -106,38 +142,52 @@ struct HomeView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
-                .padding(.bottom, 26)
+                .padding(.horizontal, 34)
+                .padding(.top, 10)
+                .padding(.bottom, 32)
             }
+            .scrollIndicators(.visible)
         }
-        .task(id: refreshRevision) { await refreshHome() }
+        .task { await refreshHome() }
     }
 
-    private var filteredHistory: [Track] { filter(tracks: history.items) }
-    private var filteredTracks: [Track] { filter(tracks: tracks.items) }
-
-    private var filteredAlbums: [Album] {
-        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !term.isEmpty else { return albums.items }
-        return albums.items.filter {
-            $0.displayName.localizedStandardContains(term) || $0.artistText.localizedStandardContains(term)
-        }
-    }
-
-    private var filteredPlaylists: [Playlist] {
-        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !term.isEmpty else { return library.sidebarPlaylists.items }
-        return library.sidebarPlaylists.items.filter { $0.displayName.localizedStandardContains(term) }
-    }
-
-    private func filter(tracks: [Track]) -> [Track] {
-        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !term.isEmpty else { return tracks }
-        return tracks.filter {
-            $0.displayTitle.localizedStandardContains(term) ||
-            $0.artistText.localizedStandardContains(term) ||
-            ($0.album?.displayName.localizedStandardContains(term) ?? false)
+    private func startRoaming() {
+        guard !isRoaming else { return }
+        isRoaming = true
+        roamTask = Task {
+            defer { isRoaming = false; roamTask = nil }
+            do {
+                var allTracks: [Track] = []
+                var seen = Set<String>()
+                var page = 1
+                var hasMore = true
+                while hasMore {
+                    try Task.checkCancellation()
+                    let response = try await service.tracks(page: page, sort: TrackSource.library.defaultSort,
+                                                            source: .library)
+                    let added = response.list.filter { seen.insert($0.guid).inserted }
+                    allTracks.append(contentsOf: added)
+                    if added.isEmpty || response.list.isEmpty {
+                        hasMore = false
+                    } else if let total = response.total {
+                        hasMore = allTracks.count < total
+                    } else {
+                        hasMore = response.list.count >= MusicService.pageSize
+                    }
+                    page += 1
+                }
+                guard !Task.isCancelled else { return }
+                guard let first = allTracks.randomElement() else {
+                    library.actions.error = "音乐库中没有可播放的歌曲。"
+                    return
+                }
+                library.player.queue.shuffle = true
+                library.player.play(first, in: allTracks)
+            } catch is CancellationError {
+                return
+            } catch {
+                library.actions.error = "读取音乐库失败：\(error.localizedDescription)"
+            }
         }
     }
 
@@ -146,6 +196,57 @@ struct HomeView: View {
         async let albumRefresh: Void = albums.refresh()
         async let trackRefresh: Void = tracks.refresh()
         _ = await (historyRefresh, albumRefresh, trackRefresh)
+    }
+}
+
+private struct HomeShortcutCard: View {
+    let title: String
+    let subtitle: String
+    let symbol: String
+    let colors: [Color]
+    var isBusy = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            GeometryReader { geometry in
+                ZStack(alignment: .bottomLeading) {
+                    LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+                    Circle()
+                        .strokeBorder(.white.opacity(0.16), lineWidth: 1)
+                        .frame(width: geometry.size.width * 1.15)
+                        .offset(x: geometry.size.width * 0.32, y: -geometry.size.height * 0.42)
+                    Image(systemName: symbol)
+                        .font(.system(size: min(geometry.size.width * 0.42, 112), weight: .light))
+                        .foregroundStyle(.white.opacity(0.30))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(22)
+                    LinearGradient(colors: [.clear, .black.opacity(0.25)], startPoint: .center, endPoint: .bottom)
+                    VStack(alignment: .leading, spacing: 8) {
+                        if isBusy { ProgressView().controlSize(.small).tint(.white) }
+                        Text(title).font(.system(size: 24, weight: .bold))
+                        Text(subtitle).font(.system(size: 12, weight: .medium)).lineLimit(3)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                // The decorative ring is wider than the card, so the ZStack would
+                // otherwise grow past the card frame and bleed over the HStack gap.
+                // Pin the drawing surface to the card's own bounds first.
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(.white.opacity(0.13), lineWidth: 0.75))
+            }
+            .frame(height: 342)
+            .shadow(color: .black.opacity(0.10), radius: 14, y: 6)
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy)
+        .help(isBusy ? "正在读取音乐库" : title)
+        .accessibilityLabel("\(title)：\(subtitle)")
     }
 }
 
@@ -294,7 +395,7 @@ private struct HomeCarouselArrowGlass: ViewModifier {
 }
 
 private struct HomeArtworkCard: View {
-    static let size: CGFloat = 180
+    static let size: CGFloat = 200
 
     let coverId: String?
     let title: String

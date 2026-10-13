@@ -5,7 +5,7 @@ enum SidebarDestination: Hashable, Identifiable {
     case search, tracks, playlists, recentlyAdded
     case playlist(String)
 
-    static let topItems: [Self] = [.search, .home]
+    static let topItems: [Self] = [.search, .home, .recent]
     static let libraryItems: [Self] = [.recentlyAdded, .artists, .albums, .tracks]
     static let playlistItems: [Self] = [.playlists, .favorites]
     static let mainItems: [Self] = topItems + libraryItems + playlistItems
@@ -14,7 +14,7 @@ enum SidebarDestination: Hashable, Identifiable {
         switch self {
         case .home: "主页"
         case .favorites: "喜爱歌曲"
-        case .recent: "播放历史"
+        case .recent: "最近"
         case .recentlyAdded: "最近添加"
         case .albums: "专辑"
         case .artists: "艺人"
