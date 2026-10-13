@@ -2,7 +2,7 @@ import SwiftUI
 import Observation
 
 enum PageContentInset { case scroll, padded }
-enum PageToolbarStyle: Equatable, Sendable { case standard, albumDetail, playlistDetail, hidden }
+enum PageToolbarStyle: Equatable, Sendable { case standard, artist, albumDetail, playlistDetail, hidden }
 
 enum PageToolbarMetrics {
     static let height: CGFloat = 52
@@ -192,8 +192,11 @@ private struct UnifiedPageToolbar<Options: View>: View {
                 Color.clear.preference(key: PageToolbarBoundsKey.self, value: [title: geometry.frame(in: .global)])
             }.allowsHitTesting(false)
         }
-        .background {
-            if style == .standard { FloatingTopBackdrop().allowsHitTesting(false) }
+        .background(alignment: .leading) {
+            if style == .standard || style == .artist {
+                FloatingTopBackdrop(width: style == .artist ? ArtistPageMetrics.directoryWidth : nil)
+                    .allowsHitTesting(false)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("FnMusic.UnifiedPageToolbar")
@@ -212,15 +215,15 @@ private struct UnifiedPageToolbar<Options: View>: View {
                 CommonPageOptions()
             }
         } label: {
-            Image(systemName: style == .standard ? "line.3.horizontal.decrease" : "ellipsis")
-                .font(.system(size: style == .standard ? 16 : 15, weight: .regular))
+            Image(systemName: style == .standard || style == .artist ? "line.3.horizontal.decrease" : "ellipsis")
+                .font(.system(size: style == .standard || style == .artist ? 16 : 15, weight: .regular))
                 .foregroundStyle(Color(nsColor: .labelColor))
                 .frame(width: PageToolbarMetrics.controlHeight, height: PageToolbarMetrics.controlHeight)
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden)
         .tint(Color(nsColor: .labelColor))
-        .help(style == .standard ? "页面选项：排序、筛选及更多操作" : "更多操作")
-        .accessibilityLabel(style == .standard ? "\(title)页面选项" : "更多操作")
+        .help(style == .standard || style == .artist ? "页面选项：排序、筛选及更多操作" : "更多操作")
+        .accessibilityLabel(style == .standard || style == .artist ? "\(title)页面选项" : "更多操作")
         .accessibilityIdentifier("FnMusic.PageOptions")
     }
 
@@ -243,9 +246,10 @@ private struct UnifiedPageToolbar<Options: View>: View {
     }
 }
 
-/// A full-width frosted titlebar. Scrolling artwork remains visible through
-/// the material, while text and controls keep a stable readable surface.
+/// A frosted titlebar. Standard pages fill the toolbar; artist pages constrain
+/// the material to the directory pane while keeping controls on the same row.
 private struct FloatingTopBackdrop: View {
+    let width: CGFloat?
     @Environment(\.accessibilityReduceTransparency) private var opaque
 
     var body: some View {
@@ -260,9 +264,10 @@ private struct FloatingTopBackdrop: View {
                 Rectangle().fill(.ultraThinMaterial) // 旧系统回退
             }
         }
-        .overlay(alignment: .bottom) {
+        .overlay(alignment: .bottomLeading) {
             Rectangle().fill(.primary.opacity(0.08)).frame(height: 0.5)
         }
+        .frame(width: width)
     }
 }
 

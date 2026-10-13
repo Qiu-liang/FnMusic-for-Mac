@@ -218,17 +218,6 @@ private struct AlbumDetailContent: View {
                         .background(Color.primary.opacity(0.065), in: Capsule())
                 }
                 .buttonStyle(.plain).foregroundStyle(.pink).disabled(visibleTracks.isEmpty)
-                Menu {
-                    ForEach(model.items) { track in
-                        Button("下载：\(track.displayTitle)…") { library.downloads.download(track) }
-                    }
-                } label: {
-                    Image(systemName: "arrow.down").font(.system(size: 13, weight: .semibold))
-                        .frame(width: 34, height: 34).background(Color.primary.opacity(0.065), in: Circle())
-                }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .help("下载此专辑中已加载的歌曲")
-                .disabled(model.items.isEmpty || library.downloads.isPreparing || library.downloads.isDownloading)
             }
             .padding(.top, 12)
         }

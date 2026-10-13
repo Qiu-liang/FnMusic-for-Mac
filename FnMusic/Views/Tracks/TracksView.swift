@@ -138,17 +138,6 @@ struct TracksView: View {
                         .background(Color.primary.opacity(0.065), in: Capsule())
                 }
                 .buttonStyle(.plain).foregroundStyle(.pink).disabled(visibleTracks.isEmpty)
-                Menu {
-                    ForEach(model.items) { track in
-                        Button("下载：\(track.displayTitle)…") { library.downloads.download(track) }
-                    }
-                } label: {
-                    Image(systemName: "arrow.down").font(.system(size: 13, weight: .semibold))
-                        .frame(width: 34, height: 34).background(Color.primary.opacity(0.065), in: Circle())
-                }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .help("下载已加载的\(collectionTitle)")
-                .disabled(model.items.isEmpty || library.downloads.isPreparing || library.downloads.isDownloading)
             }
             .padding(.bottom, 1)
         }

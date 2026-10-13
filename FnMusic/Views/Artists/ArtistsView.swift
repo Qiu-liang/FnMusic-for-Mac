@@ -13,7 +13,8 @@ struct ArtistsView: View {
     }
 
     var body: some View {
-        MusicPageChrome(title: "艺人", placeholder: "在艺人中查找", query: $model.query, inset: .padded) {
+        MusicPageChrome(title: "艺人", placeholder: "在艺人中查找", query: $model.query,
+                        inset: .padded, toolbarStyle: .artist) {
             pageOptions
         } content: {
             HStack(spacing: 0) {

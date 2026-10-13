@@ -132,6 +132,17 @@ struct RootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .padding(.leading, library.columnVisibility == .detailOnly ? 0 : MusicSidebarMetrics.width)
                 .zIndex(30)
+            if pageToolbarHost.current?.style == .artist && library.columnVisibility != .detailOnly {
+                HStack(spacing: 0) {
+                    Color.clear.frame(width: MusicSidebarMetrics.width)
+                    Rectangle().fill(.primary.opacity(0.12)).frame(width: 0.5)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .zIndex(31)
+            }
         }
     }
 

@@ -1,7 +1,38 @@
 import SwiftUI
+import AppKit
+
+/// macOS injects an untranslated “Toggle Sidebar” item into the Help menu for
+/// every window. The app already offers a localized toggle in the View menu,
+/// so drop the duplicate system item once the menu bar exists.
+@MainActor
+final class ApplicationMenuLocalizer: NSObject, NSApplicationDelegate {
+    private static let systemSidebarSelector = NSSelectorFromString("toggleSidebar:")
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task {
+            // The item arrives with the first window and may be re-inserted while
+            // the menu bar settles, so sweep again after a pause.
+            for delay in [600, 1400] {
+                try? await Task.sleep(for: .milliseconds(delay))
+                Self.removeSystemSidebarItem()
+            }
+        }
+    }
+
+    private static func removeSystemSidebarItem() {
+        guard let mainMenu = NSApp.mainMenu else { return }
+        for topLevel in mainMenu.items {
+            guard let submenu = topLevel.submenu else { continue }
+            for item in submenu.items where item.action == systemSidebarSelector {
+                submenu.removeItem(item)
+            }
+        }
+    }
+}
 
 @main
 struct FnMusicApp: App {
+    @NSApplicationDelegateAdaptor(ApplicationMenuLocalizer.self) private var menuLocalizer
     @State private var app = AppState()
     @AppStorage("appearance") private var appearance = "system"
 
@@ -36,7 +67,7 @@ struct FnMusicApp: App {
         .defaultSize(width: 1280, height: 880)
         .windowStyle(.hiddenTitleBar)
         .commands {
-            CommandMenu("Playback") {
+            CommandMenu("播放") {
                 Button("播放 / 暂停") { app.library?.player.toggle() }
                     .keyboardShortcut(" ", modifiers: [])
                     .disabled(app.library?.player.currentTrack == nil)
@@ -52,6 +83,13 @@ struct FnMusicApp: App {
                 }
                     .keyboardShortcut("f", modifiers: .command)
             }
+            // The system-provided sidebar command stays untranslated on macOS,
+            // so supply the same toggle with a localized title instead.
+            CommandGroup(replacing: .sidebar) {
+                Button(sidebarToggleTitle) { toggleSidebar() }
+                    .keyboardShortcut("s", modifiers: [.command, .control])
+                    .disabled(app.library == nil)
+            }
         }
 
         Settings {
@@ -59,5 +97,14 @@ struct FnMusicApp: App {
                 .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
                 .focusEffectDisabled()
         }
+    }
+
+    private var sidebarToggleTitle: String {
+        app.library?.columnVisibility == .detailOnly ? "显示边栏" : "隐藏边栏"
+    }
+
+    private func toggleSidebar() {
+        guard let library = app.library else { return }
+        library.columnVisibility = library.columnVisibility == .detailOnly ? .all : .detailOnly
     }
 }
