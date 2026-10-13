@@ -6,6 +6,8 @@ enum PlayerBarMetrics {
     static let horizontalMargin: CGFloat = 16
     static let bottomMargin: CGFloat = 18
     static let contentClearance: CGFloat = 88
+    static let playbackControlsWidth: CGFloat = 140
+    static let accessoryControlsWidth: CGFloat = 124
 
     static func width(in availableWidth: CGFloat) -> CGFloat {
         max(0, min(maximumWidth, availableWidth - horizontalMargin * 2))

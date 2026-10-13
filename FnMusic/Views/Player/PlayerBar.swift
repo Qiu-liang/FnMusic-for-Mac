@@ -11,9 +11,9 @@ struct PlayerBar: View {
     var body: some View {
         let player = library.player
         HStack(spacing: 12) {
-            playbackControls.frame(width: 156, alignment: .leading)
+            playbackControls.frame(width: PlayerBarMetrics.playbackControlsWidth, alignment: .leading)
             nowPlaying.frame(maxWidth: .infinity)
-            accessoryControls.frame(width: 156, alignment: .trailing)
+            accessoryControls.frame(width: PlayerBarMetrics.accessoryControlsWidth, alignment: .trailing)
         }
         .padding(.horizontal, 14)
         .frame(height: PlayerBarMetrics.height)
@@ -51,10 +51,10 @@ struct PlayerBar: View {
                 Image(systemName: "shuffle")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(queue.shuffle ? Color.pink : .secondary)
-                    .frame(width: 26, height: 32)
+                    .frame(width: 24, height: 32)
             }.help("随机播放（已加入队列的歌曲）").accessibilityLabel("随机播放")
             Button { player.previous() } label: {
-                Image(systemName: "backward.fill").frame(width: 28, height: 32)
+                Image(systemName: "backward.fill").frame(width: 26, height: 32)
             }.help("上一首").accessibilityLabel("上一首")
             Button { player.toggle() } label: {
                 ZStack {
@@ -62,17 +62,17 @@ struct PlayerBar: View {
                         .font(.system(size: 21, weight: .semibold))
                         .opacity(player.isLoading ? 0 : 1)
                     if player.isLoading { ProgressView().controlSize(.small) }
-                }.frame(width: 34, height: 34)
+                }.frame(width: 32, height: 34)
             }.help(player.isPlaying ? "暂停" : "播放")
                 .accessibilityLabel(player.isPlaying ? "暂停" : "播放")
             Button { player.next() } label: {
-                Image(systemName: "forward.fill").frame(width: 28, height: 32)
+                Image(systemName: "forward.fill").frame(width: 26, height: 32)
             }.help("下一首").accessibilityLabel("下一首")
             Button { queue.cycleRepeatMode() } label: {
                 Image(systemName: queue.repeatMode == .one ? "repeat.1" : "repeat")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(queue.repeatMode == .off ? Color.secondary : .pink)
-                    .frame(width: 26, height: 32)
+                    .frame(width: 24, height: 32)
             }.help(queue.repeatMode.title).accessibilityLabel(queue.repeatMode.title)
         }
         .font(.system(size: 14, weight: .medium))
@@ -83,24 +83,28 @@ struct PlayerBar: View {
     @ViewBuilder private var nowPlaying: some View {
         let player = library.player
         if let track = player.currentTrack {
-            VStack(spacing: 3) {
+            VStack(spacing: 1) {
                 Button { showProgress.toggle() } label: {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 9) {
                         ArtworkView(coverId: track.coverId, cache: library.images, size: 160)
-                            .frame(width: 30, height: 30)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(track.displayTitle).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                            Text(track.artistText).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                            .frame(width: 34, height: 34)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(track.displayTitle).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                            Text(track.artistText).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 0)
-                    }.contentShape(Rectangle())
+                    }
+                    .frame(height: 36)
+                    .contentShape(Rectangle())
                 }
                 .help("查看歌曲与播放进度")
                 .accessibilityLabel("\(track.displayTitle)，\(track.artistText)，查看播放进度")
                 .popover(isPresented: $showProgress) { progressPopover }
                 CompactPlaybackProgress(elapsed: player.elapsed, duration: player.duration, onSeek: player.seek)
-                    .frame(height: 8)
+                    .frame(height: 10)
             }
+            .frame(maxHeight: .infinity, alignment: .bottom)
+            .padding(.bottom, 1)
             .id(track.guid)
         } else {
             // Use FnMusic's own neutral music glyph, never Apple's proprietary logo.
@@ -183,6 +187,7 @@ struct CompactPlaybackProgress: View {
     let elapsed: Double
     let duration: Double
     let onSeek: (Double) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dragFraction: Double?
     @State private var hovering = false
 
@@ -196,28 +201,56 @@ struct CompactPlaybackProgress: View {
         return dragFraction ?? min(1, max(0, elapsed / duration))
     }
 
+    private var isExpanded: Bool { hovering || dragFraction != nil }
+
+    private var remaining: Double {
+        guard duration.isFinite, duration > 0, elapsed.isFinite else { return 0 }
+        return max(0, duration - elapsed)
+    }
+
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                Capsule().fill(.primary.opacity(0.10)).frame(height: 2)
-                Capsule().fill(.primary.opacity(0.4)).frame(width: geometry.size.width * fraction, height: 2)
-                if hovering || dragFraction != nil {
-                    Circle().fill(.primary.opacity(0.7)).frame(width: 6, height: 6)
-                        .offset(x: max(0, (geometry.size.width - 6) * fraction))
-                }
+        HStack(spacing: 7) {
+            if isExpanded {
+                Text(elapsed.playbackTime)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .fixedSize()
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { dragFraction = Self.fraction(at: $0.location.x, width: geometry.size.width) }
-                .onEnded {
-                    onSeek(Self.fraction(at: $0.location.x, width: geometry.size.width) * duration)
-                    dragFraction = nil
-                })
+
+            GeometryReader { geometry in
+                // Collapsed line is thicker and lifted so it matches the
+                // reference: 2pt tall with its bottom 4pt above the capsule edge.
+                let lineHeight: CGFloat = isExpanded ? 5 : 2
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.primary.opacity(0.16)).frame(height: lineHeight)
+                    Capsule().fill(.primary.opacity(0.82))
+                        .frame(width: geometry.size.width * fraction, height: lineHeight)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .offset(y: -3)
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0)
+                    .onChanged { dragFraction = Self.fraction(at: $0.location.x, width: geometry.size.width) }
+                    .onEnded {
+                        onSeek(Self.fraction(at: $0.location.x, width: geometry.size.width) * duration)
+                        dragFraction = nil
+                    })
+            }
+            .frame(height: 10)
+
+            if isExpanded {
+                Text("-\(remaining.playbackTime)")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .fixedSize()
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
         }
+        .frame(height: 10)
+        .contentShape(Rectangle())
         .allowsHitTesting(duration.isFinite && duration > 0)
         .onHover { hovering = $0 }
         .onDisappear { dragFraction = nil }
+        .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.84), value: isExpanded)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("播放进度")
         .accessibilityValue("\(elapsed.playbackTime)，共 \(duration.playbackTime)")
