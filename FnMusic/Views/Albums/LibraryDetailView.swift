@@ -46,7 +46,8 @@ struct LibraryDetailView: View {
             ArtistsView(model: library.artistBrowser, initialArtist: artist)
         } else {
             MusicPageChrome(title: headerInfo.title, placeholder: "在已加载歌曲中查找", query: $controls.query,
-                            inset: isAlbum ? .scroll : .padded) {
+                            inset: isAlbum ? .scroll : .padded,
+                            toolbarStyle: isAlbum ? .albumDetail : .standard) {
                 TrackPageOptions(controls: controls, source: Self.trackSource(for: model.route))
             } content: {
                 if case .album(let album) = model.route {

@@ -2,6 +2,7 @@ import SwiftUI
 import Observation
 
 enum PageContentInset { case scroll, padded }
+enum PageToolbarStyle: Equatable, Sendable { case standard, albumDetail }
 
 enum PageToolbarMetrics {
     static let height: CGFloat = 52
@@ -42,11 +43,13 @@ struct PageToolbarDescriptor: Equatable {
     nonisolated let title: String
     nonisolated let placeholder: String
     nonisolated var displayTitle: String? = nil
+    nonisolated var style: PageToolbarStyle = .standard
     let query: Binding<String>
     let options: @MainActor () -> AnyView
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.owner == rhs.owner && lhs.title == rhs.title && lhs.placeholder == rhs.placeholder && lhs.displayTitle == rhs.displayTitle
+        lhs.owner == rhs.owner && lhs.title == rhs.title && lhs.placeholder == rhs.placeholder &&
+            lhs.displayTitle == rhs.displayTitle && lhs.style == rhs.style
     }
 }
 
@@ -74,7 +77,8 @@ struct WindowPageToolbar: View {
     var body: some View {
         if let page = host.current {
             UnifiedPageToolbar(title: page.title, placeholder: page.placeholder,
-                               query: page.query, displayTitle: page.displayTitle, showsCommonOptions: true) { page.options() }
+                               query: page.query, displayTitle: page.displayTitle, style: page.style,
+                               showsCommonOptions: true) { page.options() }
                 .id(page.owner)
         }
     }
@@ -90,12 +94,14 @@ struct MusicPageChrome<Options: View, Content: View>: View {
     @Binding var query: String
     let inset: PageContentInset
     let displayTitle: String?
+    let toolbarStyle: PageToolbarStyle
     let showsCommonOptions: Bool
     private let options: @MainActor () -> Options
     private let content: Content
 
     init(title: String, placeholder: String, query: Binding<String>, inset: PageContentInset = .scroll,
          showsCommonOptions: Bool = true, displayTitle: String? = nil,
+         toolbarStyle: PageToolbarStyle = .standard,
          @ViewBuilder options: @escaping @MainActor () -> Options, @ViewBuilder content: () -> Content) {
         self.title = title
         self.placeholder = placeholder
@@ -103,6 +109,7 @@ struct MusicPageChrome<Options: View, Content: View>: View {
         self.inset = inset
         self.showsCommonOptions = showsCommonOptions
         self.displayTitle = displayTitle
+        self.toolbarStyle = toolbarStyle
         self.options = options
         self.content = content()
     }
@@ -117,7 +124,8 @@ struct MusicPageChrome<Options: View, Content: View>: View {
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
             if windowHost == nil || !showsCommonOptions {
                 UnifiedPageToolbar(title: title, placeholder: placeholder, query: $query,
-                                   displayTitle: displayTitle, showsCommonOptions: showsCommonOptions) { options() }
+                                   displayTitle: displayTitle, style: toolbarStyle,
+                                   showsCommonOptions: showsCommonOptions) { options() }
                     .zIndex(10)
             }
         }
@@ -129,7 +137,8 @@ struct MusicPageChrome<Options: View, Content: View>: View {
     private var headerDescriptor: PageToolbarDescriptor {
         let buildOptions = options
         return PageToolbarDescriptor(owner: headerOwner, title: title, placeholder: placeholder,
-                                     displayTitle: displayTitle, query: $query, options: { AnyView(buildOptions()) })
+                                     displayTitle: displayTitle, style: toolbarStyle,
+                                     query: $query, options: { AnyView(buildOptions()) })
     }
 }
 
@@ -140,6 +149,7 @@ private struct UnifiedPageToolbar<Options: View>: View {
     let placeholder: String
     @Binding var query: String
     let displayTitle: String?
+    let style: PageToolbarStyle
     let showsCommonOptions: Bool
     @ViewBuilder let options: () -> Options
     @FocusState private var focused: Bool
@@ -147,46 +157,26 @@ private struct UnifiedPageToolbar<Options: View>: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(displayTitle ?? title)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .accessibilityIdentifier("FnMusic.PageTitle")
-            Spacer(minLength: 12)
-            Menu {
-                options()
-                if showsCommonOptions {
-                    Divider()
-                    CommonPageOptions()
-                }
-            } label: {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(Color(nsColor: .labelColor))
+            if style == .albumDetail {
+                LibraryBackButton()
+                Spacer(minLength: 12)
+                pageOptionsMenu
+                    .frame(width: PageToolbarMetrics.controlHeight, height: PageToolbarMetrics.controlHeight)
+                    .modifier(FloatingTopControlGlass(shape: Circle()))
+                searchField
+            } else {
+                Text(displayTitle ?? title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .accessibilityIdentifier("FnMusic.PageTitle")
+                Spacer(minLength: 12)
+                pageOptionsMenu
+                    .frame(width: PageToolbarMetrics.controlHeight, height: PageToolbarMetrics.controlHeight)
+                    .modifier(FloatingTopControlGlass(shape: Circle()))
+                searchField
             }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden)
-            .tint(Color(nsColor: .labelColor))
-            .frame(width: PageToolbarMetrics.controlHeight, height: PageToolbarMetrics.controlHeight)
-            .modifier(FloatingTopControlGlass(shape: Circle()))
-            .help("页面选项：排序、筛选及更多操作")
-            .accessibilityLabel("\(title)页面选项")
-            .accessibilityIdentifier("FnMusic.PageOptions")
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(.secondary)
-                TextField(placeholder, text: $query)
-                    .textFieldStyle(.plain).font(.system(size: 12)).focused($focused)
-                    .accessibilityLabel(placeholder)
-                    .accessibilityIdentifier("FnMusic.PageSearch")
-                if !query.isEmpty {
-                    Button { query = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                    }.buttonStyle(.plain).accessibilityLabel("清除查找")
-                }
-            }
-            .padding(.horizontal, 11)
-            .frame(width: PageToolbarMetrics.searchWidth, height: PageToolbarMetrics.controlHeight)
-            .modifier(FloatingTopControlGlass(shape: Capsule()))
         }
         .padding(.leading, showsCommonOptions && library.columnVisibility == .detailOnly ? 90 : 20).padding(.trailing, 10)
         .frame(height: PageToolbarMetrics.height)
@@ -196,7 +186,9 @@ private struct UnifiedPageToolbar<Options: View>: View {
                 Color.clear.preference(key: PageToolbarBoundsKey.self, value: [title: geometry.frame(in: .global)])
             }.allowsHitTesting(false)
         }
-        .background { FloatingTopBackdrop().allowsHitTesting(false) }
+        .background {
+            if style != .albumDetail { FloatingTopBackdrop().allowsHitTesting(false) }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("FnMusic.UnifiedPageToolbar")
         .onAppear { active = true; if title == "搜索" { focused = true } }
@@ -204,6 +196,44 @@ private struct UnifiedPageToolbar<Options: View>: View {
         .onChange(of: library.toolbarSearchFocus) { _, _ in
             if active && controlActiveState == .key { focused = true }
         }
+    }
+
+    private var pageOptionsMenu: some View {
+        Menu {
+            options()
+            if showsCommonOptions {
+                Divider()
+                CommonPageOptions()
+            }
+        } label: {
+            Image(systemName: style == .albumDetail ? "ellipsis" : "line.3.horizontal.decrease")
+                .font(.system(size: style == .albumDetail ? 15 : 16, weight: .regular))
+                .foregroundStyle(Color(nsColor: .labelColor))
+                .frame(width: PageToolbarMetrics.controlHeight, height: PageToolbarMetrics.controlHeight)
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden)
+        .tint(Color(nsColor: .labelColor))
+        .help(style == .albumDetail ? "更多专辑操作" : "页面选项：排序、筛选及更多操作")
+        .accessibilityLabel(style == .albumDetail ? "更多专辑操作" : "\(title)页面选项")
+        .accessibilityIdentifier("FnMusic.PageOptions")
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(.secondary)
+            TextField(placeholder, text: $query)
+                .textFieldStyle(.plain).font(.system(size: 12)).focused($focused)
+                .accessibilityLabel(placeholder)
+                .accessibilityIdentifier("FnMusic.PageSearch")
+            if !query.isEmpty {
+                Button { query = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }.buttonStyle(.plain).accessibilityLabel("清除查找")
+            }
+        }
+        .padding(.horizontal, 11)
+        .frame(width: PageToolbarMetrics.searchWidth, height: PageToolbarMetrics.controlHeight)
+        .modifier(FloatingTopControlGlass(shape: Capsule()))
     }
 }
 
@@ -232,7 +262,7 @@ private struct FloatingTopBackdrop: View {
 
 /// Clear interactive glass distinguishes the two controls from the quieter
 /// full-width titlebar material without adding a second opaque plate.
-private struct FloatingTopControlGlass<S: InsettableShape>: ViewModifier {
+struct FloatingTopControlGlass<S: InsettableShape>: ViewModifier {
     let shape: S
     @Environment(\.accessibilityReduceTransparency) private var opaque
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -260,7 +290,8 @@ private struct CommonPageOptions: View {
 
     var body: some View {
         Menu("导航") {
-            Button("返回上一级") { library.goBack() }.disabled(library.navigation.isEmpty)
+            Button("返回上一级") { LibraryNavigationActions.goBack(in: library) }
+                .disabled(library.navigation.isEmpty)
             Button("前进") { library.goForward() }.disabled(!library.canGoForward)
             Divider()
             Button("搜索整个资料库") { navigate(to: .search) }
