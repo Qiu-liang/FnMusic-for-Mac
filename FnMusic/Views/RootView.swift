@@ -48,7 +48,6 @@ struct RootView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .toolbar(.visible, for: .windowToolbar)
-        .toolbar(removing: .sidebarToggle)
         .toolbarBackground(.hidden, for: .windowToolbar)
         .ignoresSafeArea(.container, edges: .top)
         .onChange(of: app.selection) { _, _ in library.resetNavigation() }
@@ -123,6 +122,7 @@ struct RootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea(.container, edges: .top)
             }
+            .toolbar(removing: .sidebarToggle)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .environment(\.windowPageToolbarHost, pageToolbarHost)
             .onPreferenceChange(WindowPageToolbarDescriptorKey.self) { pages in

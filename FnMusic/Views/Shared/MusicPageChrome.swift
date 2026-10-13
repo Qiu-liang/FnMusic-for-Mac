@@ -315,9 +315,6 @@ private struct CommonPageOptions: View {
                 Button("播放历史") { navigate(to: .recent) }
             }
         }
-        Button(library.columnVisibility == .detailOnly ? "显示侧栏" : "隐藏侧栏") {
-            library.columnVisibility = library.columnVisibility == .detailOnly ? .all : .detailOnly
-        }
         if library.downloads.isPreparing || library.downloads.isDownloading {
             Divider()
             Text(library.downloads.isPreparing ? "正在准备下载…" : "下载进度 \(Int(library.downloads.progress * 100))%")
