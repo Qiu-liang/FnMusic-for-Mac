@@ -162,13 +162,13 @@ private struct UnifiedPageToolbar<Options: View>: View {
                 Spacer(minLength: 12)
                 pageOptionsMenu
                     .frame(width: PageToolbarMetrics.controlHeight, height: PageToolbarMetrics.controlHeight)
-                    .modifier(FloatingTopControlGlass(shape: Circle()))
+                    .modifier(PageControlSurface(shape: Circle()))
                 searchField
             } else if style == .playlistDetail {
                 Spacer(minLength: 12)
                 pageOptionsMenu
                     .frame(width: PageToolbarMetrics.controlHeight, height: PageToolbarMetrics.controlHeight)
-                    .modifier(FloatingTopControlGlass(shape: Circle()))
+                    .modifier(PageControlSurface(shape: Circle()))
                 searchField
             } else {
                 Text(displayTitle ?? title)
@@ -180,7 +180,7 @@ private struct UnifiedPageToolbar<Options: View>: View {
                 Spacer(minLength: 12)
                 pageOptionsMenu
                     .frame(width: PageToolbarMetrics.controlHeight, height: PageToolbarMetrics.controlHeight)
-                    .modifier(FloatingTopControlGlass(shape: Circle()))
+                    .modifier(PageControlSurface(shape: Circle()))
                 searchField
             }
         }
@@ -215,21 +215,49 @@ private struct UnifiedPageToolbar<Options: View>: View {
                 CommonPageOptions()
             }
         } label: {
-            Image(systemName: style == .standard || style == .artist ? "line.3.horizontal.decrease" : "ellipsis")
-                .font(.system(size: style == .standard || style == .artist ? 16 : 15, weight: .regular))
-                .foregroundStyle(Color(nsColor: .labelColor))
+            // SwiftUI bridges this borderless Menu to a native popup button
+            // whose hit region follows the label's text metrics, not the
+            // surrounding 36 pt frame. Keep an invisible text label so the
+            // whole surface is clickable, and draw the glyph as an overlay so
+            // the native popup cannot swallow it.
+            Text("...")
+                .font(.system(size: 34, weight: .regular))
+                .foregroundStyle(.clear)
+                .accessibilityHidden(true)
                 .frame(width: PageToolbarMetrics.controlHeight, height: PageToolbarMetrics.controlHeight)
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden)
         .tint(Color(nsColor: .labelColor))
+        .overlay {
+            pageOptionsGlyph
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         .help(style == .standard || style == .artist ? "页面选项：排序、筛选及更多操作" : "更多操作")
         .accessibilityLabel(style == .standard || style == .artist ? "\(title)页面选项" : "更多操作")
         .accessibilityIdentifier("FnMusic.PageOptions")
     }
 
+    @ViewBuilder private var pageOptionsGlyph: some View {
+        if style == .standard || style == .artist {
+            VStack(spacing: 2.5) {
+                Capsule().frame(width: 16, height: 1.5)
+                Capsule().frame(width: 13, height: 1.5)
+                Capsule().frame(width: 9, height: 1.5)
+            }
+            .foregroundStyle(Color(nsColor: .labelColor))
+        } else {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(Color(nsColor: .labelColor))
+        }
+    }
+
     private var searchField: some View {
         HStack(spacing: 7) {
-            Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(.secondary)
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12)).foregroundStyle(.secondary)
+                .allowsHitTesting(false)
             TextField(placeholder, text: $query)
                 .textFieldStyle(.plain).font(.system(size: 12)).focused($focused)
                 .accessibilityLabel(placeholder)
@@ -237,12 +265,50 @@ private struct UnifiedPageToolbar<Options: View>: View {
             if !query.isEmpty {
                 Button { query = "" } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                }.buttonStyle(.plain).accessibilityLabel("清除查找")
+                }
+                .buttonStyle(.plain)
+                .frame(width: 24, height: PageToolbarMetrics.controlHeight)
+                .contentShape(Rectangle())
+                .accessibilityLabel("清除查找")
+                .accessibilityIdentifier("FnMusic.PageSearchClear")
             }
         }
         .padding(.horizontal, 11)
         .frame(width: PageToolbarMetrics.searchWidth, height: PageToolbarMetrics.controlHeight)
-        .modifier(FloatingTopControlGlass(shape: Capsule()))
+        .background {
+            // The AppKit text field only covers its 15 pt text strip. This
+            // transparent button makes the whole glass capsule focus the
+            // field, including the icon, horizontal padding and vertical margin.
+            Button { focused = true } label: {
+                Color.clear.contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHidden(true)
+            .focusable(false)
+        }
+        .modifier(PageControlSurface(shape: Capsule()))
+    }
+}
+
+/// Clear Liquid Glass all but disappears over white catalog content, so the
+/// two page controls use the quieter surface from the reference header: a
+/// light frosted fill, a crisp hairline outline and a solid glyph. The back
+/// button keeps `FloatingTopControlGlass`; this treatment stays scoped to the
+/// options button and search capsule.
+struct PageControlSurface<S: InsettableShape>: ViewModifier {
+    let shape: S
+    @Environment(\.accessibilityReduceTransparency) private var opaque
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if opaque {
+            content
+                .background(Color(nsColor: .controlBackgroundColor), in: shape)
+                .overlay(shape.strokeBorder(.primary.opacity(0.14), lineWidth: 1))
+        } else {
+            content
+                .background { shape.fill(.ultraThinMaterial).opacity(0.65) }
+                .overlay(shape.strokeBorder(.primary.opacity(0.10), lineWidth: 1))
+        }
     }
 }
 
