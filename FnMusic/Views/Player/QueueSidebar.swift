@@ -88,7 +88,7 @@ struct QueueSidebar: View {
                     .foregroundStyle(queue.shuffle ? Color.pink : .secondary)
                     .background(.primary.opacity(0.05), in: Capsule())
             }
-            .help("随机播放（已加入队列的歌曲）").accessibilityLabel("随机播放")
+            .help("随机播放（已加入队列的歌曲，一轮播完后继续）").accessibilityLabel("随机播放")
             .accessibilityValue(queue.shuffle ? "开启" : "关闭")
             .accessibilityIdentifier("FnMusic.QueueShuffle")
             Button { library.rightPanel = nil } label: {

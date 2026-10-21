@@ -1,6 +1,8 @@
 import Observation
 
 /// Repeat-one affects automatic completion only; manual navigation still advances.
+/// Shuffle traverses no-replacement passes; playback asks for a fresh pass at the
+/// end of each one through `QueueManager.nextForPlayback`.
 enum RepeatMode: String, CaseIterable, Sendable {
     case off
     case all
@@ -158,6 +160,8 @@ final class QueueManager {
         return current
     }
 
+    /// One-pass traversal. Playback should use `nextForPlayback` so a fully
+    /// consumed shuffled pass starts a new one instead of stalling.
     @discardableResult
     func next(automatic: Bool = true) -> Track? {
         guard let index else { return nil }
@@ -177,6 +181,20 @@ final class QueueManager {
             return nil
         }
         return current
+    }
+
+    /// Playback-facing advance. When a no-replacement shuffle pass has been
+    /// fully consumed, start a fresh pass so automatic completion and the Next
+    /// command keep working. The shuffle history is preserved, so `previous()`
+    /// can still cross the pass boundary.
+    ///
+    /// Sequential playback, `repeatMode == .one` automatic completion, and a
+    /// single-entry queue keep their existing semantics.
+    @discardableResult
+    func nextForPlayback(automatic: Bool = true) -> Track? {
+        if let track = next(automatic: automatic) { return track }
+        guard index != nil, shuffle, tracks.count > 1 else { return nil }
+        return nextShuffled(allowRefill: true)
     }
 
     @discardableResult
@@ -207,7 +225,7 @@ final class QueueManager {
         bag = tracks.indices.filter { $0 != index }.shuffled()
     }
 
-    private func nextShuffled() -> Track? {
+    private func nextShuffled(allowRefill: Bool = false) -> Track? {
         if historyPosition + 1 < history.count {
             historyPosition += 1
             index = history[historyPosition]
@@ -215,7 +233,9 @@ final class QueueManager {
         }
 
         if bag.isEmpty {
-            guard repeatMode == .all else { return nil }
+            // `next` reports a completed one-pass shuffle as nil. Playback calls
+            // back with `allowRefill` to begin the next pass instead of stopping.
+            guard repeatMode == .all || allowRefill else { return nil }
             bag = Array(tracks.indices).shuffled()
             // Every entry gets one turn in a refill, without an immediate repeat
             // across the cycle boundary (unless the queue has only one entry).

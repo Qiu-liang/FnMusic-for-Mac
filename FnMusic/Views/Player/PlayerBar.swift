@@ -52,7 +52,7 @@ struct PlayerBar: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(queue.shuffle ? Color.pink : .secondary)
                     .frame(width: 24, height: 32)
-            }.help("随机播放（已加入队列的歌曲）").accessibilityLabel("随机播放")
+            }.help("随机播放（已加入队列的歌曲，一轮播完后继续）").accessibilityLabel("随机播放")
             Button { player.previous() } label: {
                 Image(systemName: "backward.fill").frame(width: 26, height: 32)
             }.help("上一首").accessibilityLabel("上一首")

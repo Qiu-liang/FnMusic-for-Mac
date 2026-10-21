@@ -104,7 +104,7 @@ final class AudioPlayer {
 
     func next(automatic: Bool = false) {
         if automatic, UserDefaults.standard.object(forKey: "autoAdvance") as? Bool == false { pause(); return }
-        guard queue.next(automatic: automatic) != nil else {
+        guard queue.nextForPlayback(automatic: automatic) != nil else {
             pause()
             return
         }
