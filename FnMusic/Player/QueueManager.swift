@@ -1,8 +1,8 @@
 import Observation
 
 /// Repeat-one affects automatic completion only; manual navigation still advances.
-/// Shuffle traverses no-replacement passes; playback asks for a fresh pass at the
-/// end of each one through `QueueManager.nextForPlayback`.
+/// Shuffle traverses no-replacement passes deduplicated by `Track.guid`; playback
+/// asks for a fresh pass at the end of each one through `nextForPlayback`.
 enum RepeatMode: String, CaseIterable, Sendable {
     case off
     case all
@@ -30,6 +30,8 @@ enum RepeatMode: String, CaseIterable, Sendable {
 }
 
 /// Queue entries are identified by position, not by Track.guid: duplicates are valid.
+/// Shuffle passes are deduplicated by Track.guid: duplicate entries remain in the
+/// queue, but only one occurrence of each song is scheduled per pass.
 @MainActor
 @Observable
 final class QueueManager {
@@ -60,7 +62,11 @@ final class QueueManager {
     }
 
     // Internal traversal state must not create observation dependencies for views.
-    @ObservationIgnored private var bag: [Int] = []
+    // The shuffle bag stores GUIDs, not indices, so duplicate queue entries are
+    // scheduled at most once per pass.
+    @ObservationIgnored private var bag: [String] = []
+    // GUIDs already played (or explicitly queued with "play next") this pass.
+    @ObservationIgnored private var passScheduledGUIDs: Set<String> = []
     @ObservationIgnored private var history: [Int] = []
     @ObservationIgnored private var historyPosition = 0
 
@@ -77,10 +83,15 @@ final class QueueManager {
             resetShuffle()
             return
         }
+        guard shuffle else { return }
 
-        if shuffle {
-            bag.insert(tracks.count - 1, at: Int.random(in: 0...bag.count))
-        }
+        let guid = track.guid
+        // The queue entry is kept, but a duplicate GUID must not create a second
+        // occurrence in the current shuffle pass.
+        guard current?.guid != guid,
+              !bag.contains(guid),
+              !passScheduledGUIDs.contains(guid) else { return }
+        bag.insert(guid, at: Int.random(in: 0...bag.count))
     }
 
     /// Inserts directly after the current entry, including in shuffle traversal.
@@ -92,9 +103,13 @@ final class QueueManager {
 
         let insertion = index + 1
         tracks.insert(track, at: insertion)
-        remapShuffle { $0 >= insertion ? $0 + 1 : $0 }
+        remapShuffleHistory { $0 >= insertion ? $0 + 1 : $0 }
         if shuffle {
             // Keep the forward history intact when inserting after stepping back.
+            // "Play next" is an explicit override; remove the GUID from the
+            // random bag so it cannot also be drawn later in this pass.
+            bag.removeAll { $0 == track.guid }
+            passScheduledGUIDs.insert(track.guid)
             history.insert(insertion, at: historyPosition + 1)
         }
     }
@@ -116,10 +131,11 @@ final class QueueManager {
             resetShuffle()
         } else {
             index = position < oldIndex ? oldIndex - 1 : oldIndex
-            remapShuffle { value in
+            remapShuffleHistory { value in
                 if value == position { return nil }
                 return value > position ? value - 1 : value
             }
+            pruneShuffleBag()
         }
     }
 
@@ -143,7 +159,7 @@ final class QueueManager {
             return value
         }
         index = index.map(mappedIndex)
-        remapShuffle { mappedIndex($0) }
+        remapShuffleHistory { mappedIndex($0) }
     }
 
     func clear() {
@@ -160,8 +176,9 @@ final class QueueManager {
         return current
     }
 
-    /// One-pass traversal. Playback should use `nextForPlayback` so a fully
-    /// consumed shuffled pass starts a new one instead of stalling.
+    /// One-pass traversal. A shuffle pass visits each distinct Track.guid at
+    /// most once. Playback should use `nextForPlayback` so a fully consumed
+    /// shuffled pass starts a new one instead of stalling.
     @discardableResult
     func next(automatic: Bool = true) -> Track? {
         guard let index else { return nil }
@@ -189,11 +206,11 @@ final class QueueManager {
     /// can still cross the pass boundary.
     ///
     /// Sequential playback, `repeatMode == .one` automatic completion, and a
-    /// single-entry queue keep their existing semantics.
+    /// queue with only one distinct song keep their existing semantics.
     @discardableResult
     func nextForPlayback(automatic: Bool = true) -> Track? {
         if let track = next(automatic: automatic) { return track }
-        guard index != nil, shuffle, tracks.count > 1 else { return nil }
+        guard index != nil, shuffle else { return nil }
         return nextShuffled(allowRefill: true)
     }
 
@@ -216,19 +233,34 @@ final class QueueManager {
 
     // MARK: - Local shuffle bag and reversible history
 
+    /// Unique GUIDs in queue order. Duplicate entries of the same song are
+    /// represented once in each shuffle pass.
+    private var uniqueTrackGUIDs: [String] {
+        var seen = Set<String>()
+        return tracks.compactMap { seen.insert($0.guid).inserted ? $0.guid : nil }
+    }
+
     private func resetShuffle() {
         bag.removeAll()
+        passScheduledGUIDs.removeAll()
         history.removeAll()
         historyPosition = 0
         guard shuffle, let index else { return }
+        let currentGUID = tracks[index].guid
         history = [index]
-        bag = tracks.indices.filter { $0 != index }.shuffled()
+        passScheduledGUIDs = [currentGUID]
+        bag = uniqueTrackGUIDs.filter { $0 != currentGUID }.shuffled()
     }
 
     private func nextShuffled(allowRefill: Bool = false) -> Track? {
         if historyPosition + 1 < history.count {
             historyPosition += 1
             index = history[historyPosition]
+            if let guid = current?.guid {
+                // Manual backtracking replay counts as this pass's occurrence.
+                bag.removeAll { $0 == guid }
+                passScheduledGUIDs.insert(guid)
+            }
             return current
         }
 
@@ -236,28 +268,48 @@ final class QueueManager {
             // `next` reports a completed one-pass shuffle as nil. Playback calls
             // back with `allowRefill` to begin the next pass instead of stopping.
             guard repeatMode == .all || allowRefill else { return nil }
-            bag = Array(tracks.indices).shuffled()
-            // Every entry gets one turn in a refill, without an immediate repeat
-            // across the cycle boundary (unless the queue has only one entry).
-            if bag.last == index,
-               let different = bag.firstIndex(where: { $0 != index }) {
+            let guids = uniqueTrackGUIDs
+            guard !guids.isEmpty else { return nil }
+            // A single distinct song has no alternative pick; only list loop
+            // should replay it automatically.
+            guard repeatMode == .all || guids.count > 1 else { return nil }
+
+            bag = guids.shuffled()
+            passScheduledGUIDs.removeAll()
+            // Every song gets one turn in a refill, without an immediate repeat
+            // across the pass boundary (unless there is only one distinct song).
+            if let currentGUID = current?.guid, guids.count > 1,
+               bag.last == currentGUID,
+               let different = bag.firstIndex(where: { $0 != currentGUID }) {
                 bag.swapAt(different, bag.count - 1)
             }
         }
-        guard let nextIndex = bag.popLast() else { return nil }
-        index = nextIndex
-        history.append(nextIndex)
-        historyPosition = history.count - 1
-        return current
+
+        while let nextGUID = bag.popLast() {
+            guard let nextIndex = tracks.firstIndex(where: { $0.guid == nextGUID }) else { continue }
+            index = nextIndex
+            passScheduledGUIDs.insert(nextGUID)
+            history.append(nextIndex)
+            historyPosition = history.count - 1
+            return current
+        }
+        return nil
     }
 
-    /// Preserve entry identity and the history cursor across structural edits.
-    private func remapShuffle(_ transform: (Int) -> Int?) {
+    /// Preserve the history cursor across structural edits. The shuffle bag is
+    /// GUID-based and does not need index remapping.
+    private func remapShuffleHistory(_ transform: (Int) -> Int?) {
         guard shuffle else { return }
-        bag = bag.compactMap(transform)
         let retainedThroughCurrent = history.prefix(historyPosition + 1)
             .compactMap(transform).count
         history = history.compactMap(transform)
         historyPosition = max(0, retainedThroughCurrent - 1)
+    }
+
+    /// Drop GUIDs whose last queue occurrence was removed before they played.
+    private func pruneShuffleBag() {
+        guard shuffle else { return }
+        let existing = Set(tracks.map(\.guid))
+        bag.removeAll { !existing.contains($0) }
     }
 }
