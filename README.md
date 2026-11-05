@@ -65,7 +65,9 @@ xcodebuild -project FnMusic.xcodeproj -scheme FnMusic \
 
 ## API 兼容性与证据边界
 
-本项目API由官方网页端逆向得到，不包含后端实现。接口文档和实现以 `serverVersion 1.0.10` / `mediasrvVersion 0.8.43` 的验证范围为基础，不保证其它服务器版本、反向代理配置或权限模型完全兼容。
+本项目的接口文档、只读验证脚本与验证结论维护在独立仓库 [OpenFnMusicAPI](https://github.com/Qiu-liang/OpenFnMusicAPI)，这是飞牛音乐 Web 端 HTTP API 的非官方逆向资料。客户端实现据此完成，不包含后端实现，也不在本仓库重复维护接口文档副本。
+
+接口覆盖范围以 `serverVersion 1.0.10` / `mediasrvVersion 0.8.43` 的验证结果为基础，不保证其它服务器版本、反向代理配置或权限模型完全兼容。
 
 接口证据等级不等于所有版本都稳定；低证据等级的接口不会被当作当前成功证据。客户端也不会自动执行扫描、purge、管理、上传、改密或播放事件上报。
 
@@ -105,6 +107,9 @@ FnMusic/
   Resources/              Info.plist 和原创图标资源
 ```
 
+## 相关仓库
+
+- [OpenFnMusicAPI](https://github.com/Qiu-liang/OpenFnMusicAPI)：飞牛音乐 Web 端 HTTP API 的非官方逆向文档与只读验证脚本，包含接口定义、验证结论和已知差异，是本项目接口实现的主要参考资料。
 
 ## 许可证
 

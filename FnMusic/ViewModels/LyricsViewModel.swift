@@ -15,7 +15,10 @@ final class LyricsViewModel {
     init(service: any LyricsServiceProtocol) { self.service = service }
 
     func load(trackGUID: String?) async {
-        guard trackGUID != loadedTrackGUID else { return }
+        // Only skip a reload of a track that has already loaded successfully.
+        // A nil load must still invalidate an in-flight request and bump the
+        // generation; otherwise a late response can repopulate cleared state.
+        if let trackGUID, trackGUID == loadedTrackGUID { return }
         let identity = UUID()
         generation = identity
         loadedTrackGUID = nil
@@ -36,7 +39,10 @@ final class LyricsViewModel {
             select()
             loadedTrackGUID = trackGUID
         } catch is CancellationError { }
-        catch { if generation == identity { self.error = error.localizedDescription } }
+        catch {
+            guard generation == identity, !Task.isCancelled else { return }
+            self.error = error.localizedDescription
+        }
     }
 
     func select() {
