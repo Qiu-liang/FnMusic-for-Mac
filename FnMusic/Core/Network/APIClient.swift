@@ -227,23 +227,22 @@ actor APIClient {
     /// the entire audio file to be downloaded into memory.
     private func sendMediaRange(_ request: URLRequest, limit: Int) async throws -> (Data, HTTPURLResponse) {
         do {
-            let (bytes, response) = try await session.bytes(for: request)
-            defer { bytes.task.cancel() }
-            guard let http = response as? HTTPURLResponse else { throw APIError.network }
+            let (data, http) = try await ChunkedDataTask.data(
+                for: request,
+                session: session,
+                responsePolicy: { http in
+                    if http.statusCode == 401 { return 65_536 }
+                    let isJSON = http.mimeType?.contains("json") == true
+                    if !isJSON && http.statusCode != 206 {
+                        if !(200..<300).contains(http.statusCode) { throw APIError.http(http.statusCode) }
+                        throw APIError.invalidRange
+                    }
+                    return isJSON ? 65_536 : limit
+                },
+                overflowError: { APIError.invalidRange }
+            )
             if http.statusCode == 401 {
                 try await validate(Data(), response: http, json: false)
-            }
-            let isJSON = http.mimeType?.contains("json") == true
-            if !isJSON && http.statusCode != 206 {
-                if !(200..<300).contains(http.statusCode) { throw APIError.http(http.statusCode) }
-                throw APIError.invalidRange
-            }
-            let cap = isJSON ? 65_536 : limit
-            var data = Data()
-            data.reserveCapacity(min(cap, 524_288))
-            for try await byte in bytes {
-                if data.count >= cap { throw APIError.invalidRange }
-                data.append(byte)
             }
             try Task.checkCancellation()
             return (data, http)
@@ -269,18 +268,18 @@ actor APIClient {
             try Task.checkCancellation()
             guard !isClosed else { throw CancellationError() }
             do {
-                let (bytes, response) = try await session.bytes(for: request)
-                defer { bytes.task.cancel() }
-                guard let http = response as? HTTPURLResponse else { throw APIError.network }
                 let cap = request.value(forHTTPHeaderField: "Accept") == "image/*" ? 20_971_520 : 33_554_432
-                if response.expectedContentLength > Int64(cap) {
-                    throw APIError.unavailable("服务器响应超过客户端安全大小上限。")
-                }
-                var data = Data()
-                for try await byte in bytes {
-                    guard data.count < cap else { throw APIError.unavailable("服务器响应超过客户端安全大小上限。") }
-                    data.append(byte)
-                }
+                let (data, http) = try await ChunkedDataTask.data(
+                    for: request,
+                    session: session,
+                    responsePolicy: { http in
+                        if http.expectedContentLength > Int64(cap) {
+                            throw APIError.unavailable("服务器响应超过客户端安全大小上限。")
+                        }
+                        return cap
+                    },
+                    overflowError: { APIError.unavailable("服务器响应超过客户端安全大小上限。") }
+                )
                 try Task.checkCancellation()
                 guard !isClosed else { throw CancellationError() }
                 #if DEBUG

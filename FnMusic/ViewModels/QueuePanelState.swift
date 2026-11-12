@@ -9,6 +9,7 @@ final class QueuePanelState {
     var query = ""
     private(set) var hiddenHistoryIDs: Set<String> = []
     @ObservationIgnored private var historyTask: Task<Void, Never>?
+    @ObservationIgnored private var historyRefreshPending = false
 
     init(service: any MusicServiceProtocol) {
         history = PagedViewModel(sort: TrackSource.history.defaultSort) { page, sort in
@@ -29,15 +30,20 @@ final class QueuePanelState {
     }
 
     func loadHistory(refresh: Bool = false) async {
+        if refresh { historyRefreshPending = true }
         if let historyTask { await historyTask.value; return }
         let history = history
         let task = Task {
-            if refresh { await history.refresh() }
-            else { await history.loadMore() }
+            defer { historyTask = nil }
+            repeat {
+                let shouldRefresh = historyRefreshPending
+                historyRefreshPending = false
+                if shouldRefresh { await history.refresh() }
+                else { await history.loadMore() }
+            } while historyRefreshPending
         }
         historyTask = task
         await task.value
-        historyTask = nil
     }
 
     /// Explicitly local and reversible; never issues a server deletion request.

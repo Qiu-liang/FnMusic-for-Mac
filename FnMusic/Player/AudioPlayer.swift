@@ -23,7 +23,6 @@ final class AudioPlayer {
     @ObservationIgnored private var preparation: Task<Void, Never>?
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var itemObservation: NSKeyValueObservation?
-    @ObservationIgnored private var rateObservation: NSKeyValueObservation?
     @ObservationIgnored private var endObserver: NSObjectProtocol?
     @ObservationIgnored private var failureObserver: NSObjectProtocol?
     @ObservationIgnored private var media: MediaSession?
@@ -224,7 +223,6 @@ final class AudioPlayer {
         resourceLoader = nil
         player.replaceCurrentItem(with: nil)
         itemObservation = nil
-        rateObservation = nil
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         timeObserver = nil
         removeItemNotifications()

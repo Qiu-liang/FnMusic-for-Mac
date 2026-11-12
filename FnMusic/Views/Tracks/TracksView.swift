@@ -254,16 +254,16 @@ struct TrackList: View {
     var scrollProxy: ScrollViewProxy? = nil
     var rowStyle: TrackListRowStyle = .standard
     @State private var removing: Track?
-    @State private var selected: String?
+    @State private var selected: Int?
 
     var body: some View {
         LazyVStack(spacing: 0) {
-            ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+            ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
                 rowContent(track)
                 .padding(.horizontal, rowStyle == .collectionDetail ? 0 : 10)
                 .padding(.vertical, rowStyle == .collectionDetail ? 7 : 8)
                 .background {
-                    if selected == track.guid {
+                    if selected == index {
                         RoundedRectangle(cornerRadius: 7).fill(Color.accentColor.opacity(0.1))
                     } else if rowStyle == .standard && index.isMultiple(of: 2) {
                         RoundedRectangle(cornerRadius: 7).fill(Color.primary.opacity(0.025))
@@ -276,14 +276,14 @@ struct TrackList: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { library.player.play(track, in: tracks) }
-                .onTapGesture { selected = track.guid }
+                .onTapGesture { selected = index }
                 .contextMenu { trackActions(for: track) }
                 .accessibilityElement(children: .combine)
-                .id(track.guid)
+                .id(index)
             }
         }
-        .onChange(of: selected) { _, guid in
-            if let guid { withAnimation(.easeInOut(duration: 0.15)) { scrollProxy?.scrollTo(guid, anchor: .center) } }
+        .onChange(of: selected) { _, index in
+            if let index { withAnimation(.easeInOut(duration: 0.15)) { scrollProxy?.scrollTo(index, anchor: .center) } }
         }
         .confirmationDialog("从当前歌单移除“\(removing?.displayTitle ?? "")”？不会删除原音乐文件。",
                             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
@@ -296,8 +296,8 @@ struct TrackList: View {
         }
         .focusable()
         .onKeyPress(.return) {
-            guard let track = tracks.first(where: { $0.guid == selected }) else { return .ignored }
-            library.player.play(track, in: tracks)
+            guard let selected, tracks.indices.contains(selected) else { return .ignored }
+            library.player.play(tracks[selected], in: tracks)
             return .handled
         }
         .onKeyPress(.downArrow) { moveSelection(1); return .handled }
@@ -393,7 +393,7 @@ struct TrackList: View {
 
     private func moveSelection(_ offset: Int) {
         guard !tracks.isEmpty else { return }
-        let current = tracks.firstIndex(where: { $0.guid == selected }) ?? (offset > 0 ? -1 : tracks.count)
-        selected = tracks[min(max(0, current + offset), tracks.count - 1)].guid
+        let current = selected ?? (offset > 0 ? -1 : tracks.count)
+        selected = min(max(0, current + offset), tracks.count - 1)
     }
 }

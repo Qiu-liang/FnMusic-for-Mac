@@ -89,8 +89,13 @@ final class AppState {
         client = candidate
         library = LibraryContext(client: candidate, user: user)
         self.user = user
-        // UI-only acceptance option; no injected data or authentication bypass.
-        selection = CommandLine.arguments.contains("--show-artists") ? .artists : .home
+        // DEBUG-only UI acceptance option; no injected data or authentication bypass.
+        selection = .home
+        #if DEBUG
+        if CommandLine.arguments.contains("--show-artists") {
+            selection = .artists
+        }
+        #endif
         configuration = config
         systemInfo = info
         sessionMessage = nil
