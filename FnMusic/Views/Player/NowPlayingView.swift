@@ -120,11 +120,11 @@ struct NowPlayingView: View {
 
     private var topBar: some View {
         HStack(spacing: 12) {
-            HStack(spacing: 0) {
+            HStack(spacing: 2) {
                 Button(action: close) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .frame(width: 30, height: 30)
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(width: 32, height: 32)
                 }
                 .buttonStyle(.plain)
                 .help("关闭歌词页")
@@ -134,17 +134,21 @@ struct NowPlayingView: View {
                 Button {
                     hostingWindow?.toggleFullScreen(nil)
                 } label: {
-                    Image(systemName: "macwindow")
-                        .font(.system(size: 12, weight: .medium))
-                        .frame(width: 30, height: 30)
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 18, weight: .medium))
+                        .frame(width: 34, height: 32)
                 }
                 .buttonStyle(.plain)
                 .help(isFullScreen ? "退出全屏" : "进入全屏")
                 .accessibilityLabel(isFullScreen ? "退出全屏" : "进入全屏")
             }
-            .foregroundStyle(.white.opacity(0.9))
-            .padding(2)
+            .foregroundStyle(.white.opacity(0.96))
+            .padding(3)
             .modifier(NowPlayingGlass())
+            .overlay {
+                Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.8)
+            }
+            .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
             .padding(.leading, NowPlayingMetrics.topBarEdgeInset)
 
             Spacer(minLength: 0)
