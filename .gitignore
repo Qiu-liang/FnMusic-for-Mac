@@ -47,8 +47,11 @@ Deliverables/
 .idea/
 
 # Local-only materials (kept on disk, not open-sourced)
-/Tests/
+/Tests Old/
 /Docs/
 /Tools/
 /FnMusicAPI.md
 /Assets.xcassets/
+
+# ZCode session state
+.zcode/
