@@ -372,27 +372,31 @@ struct NowPlayingView: View {
     // MARK: Lyrics / queue switch
 
     private var sideSwitch: some View {
-        HStack(spacing: 8) {
-            sideButton(.lyrics, symbol: "quote.bubble", label: "歌词")
-            sideButton(.queue, symbol: "list.bullet", label: "待播清单")
+        HStack(spacing: 0) {
+            sideButton(.lyrics, symbol: "quote.bubble", selectedSymbol: "quote.bubble.fill", label: "歌词")
+            sideButton(.queue, symbol: "list.bullet", selectedSymbol: "list.bullet", label: "待播清单")
         }
+        .padding(4)
+        .modifier(NowPlayingGlass())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("FnMusic.NowPlayingSideSwitch")
     }
 
-    private func sideButton(_ target: Side, symbol: String, label: String) -> some View {
-        Button { side = target } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(side == target ? 0.95 : 0.5))
-                .frame(width: 32, height: 32)
-                .modifier(NowPlayingGlass())
-                .contentShape(Capsule())
+    private func sideButton(_ target: Side, symbol: String, selectedSymbol: String, label: String) -> some View {
+        let selected = side == target
+        return Button { side = target } label: {
+            Image(systemName: selected ? selectedSymbol : symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(selected ? Color.black.opacity(0.72) : .white.opacity(0.68))
+                .frame(width: 38, height: 36)
+                .background(selected ? .white.opacity(0.9) : .clear, in: Circle())
+                .shadow(color: selected ? .black.opacity(0.12) : .clear, radius: 2, y: 1)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .help(label)
         .accessibilityLabel(label)
-        .accessibilityValue(side == target ? "已选中" : "未选中")
+        .accessibilityValue(selected ? "已选中" : "未选中")
     }
 }
 
