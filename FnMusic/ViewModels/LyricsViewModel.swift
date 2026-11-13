@@ -1,6 +1,14 @@
 import Foundation
 import Observation
 
+/// A presented lyric entry. Untimed lines that follow a timed line are folded
+/// into it as translations, matching how LRC files carry bilingual lyrics.
+struct LyricDisplayEntry: Identifiable, Equatable, Sendable {
+    let id: Int
+    let text: String
+    var translations: [String] = []
+}
+
 @MainActor @Observable
 final class LyricsViewModel {
     var parsed = ParsedLyrics(lines: [])
@@ -51,5 +59,19 @@ final class LyricsViewModel {
             return
         }
         parsed = LyricParser.parse(lyric)
+    }
+
+    var displayEntries: [LyricDisplayEntry] {
+        var entries: [LyricDisplayEntry] = []
+        var precedingTimedEntry: Int?
+        for line in parsed.lines {
+            if line.time == nil, let precedingTimedEntry {
+                entries[precedingTimedEntry].translations.append(line.text)
+            } else {
+                entries.append(LyricDisplayEntry(id: line.id, text: line.text))
+                precedingTimedEntry = line.time == nil ? nil : entries.count - 1
+            }
+        }
+        return entries
     }
 }

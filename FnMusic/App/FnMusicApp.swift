@@ -83,6 +83,11 @@ struct FnMusicApp: App {
                     .keyboardShortcut(.rightArrow, modifiers: .command)
                 Button("上一首") { app.library?.player.previous() }
                     .keyboardShortcut(.leftArrow, modifiers: .command)
+                Button(app.library?.nowPlayingExpanded == true ? "关闭歌词页" : "打开歌词页") {
+                    app.library?.nowPlayingExpanded.toggle()
+                }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+                .disabled(app.library?.player.currentTrack == nil)
             }
             CommandGroup(after: .textEditing) {
                 Button("搜索音乐") {

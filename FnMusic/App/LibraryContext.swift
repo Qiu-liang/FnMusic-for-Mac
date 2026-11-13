@@ -21,6 +21,7 @@ final class LibraryContext {
     var toolbarSearchFocus = UUID()
     var columnVisibility: NavigationSplitViewVisibility = .all
     var rightPanel: RightPanel?
+    var nowPlayingExpanded = false
     var navigation: [LibraryRoute] = [] {
         didSet { if !restoringNavigationHistory && navigation != oldValue { forwardRoutes.removeAll() } }
     }

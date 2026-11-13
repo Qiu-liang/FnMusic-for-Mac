@@ -41,16 +41,30 @@ struct RootView: View {
                     .padding(.leading, sidebarVisible ? MusicSidebarMetrics.width : 0)
                     .padding(.trailing, reservedWidth)
                     .zIndex(20)
+
+                if library.nowPlayingExpanded, library.player.currentTrack != nil {
+                    NowPlayingView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(reduceMotion ? .identity : .opacity.combined(with: .scale(scale: 0.985)))
+                        .zIndex(40)
+                }
             }
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: panelOpen)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: library.rightPanel)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: library.nowPlayingExpanded)
             .clipped()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .toolbar(.visible, for: .windowToolbar)
+        .toolbar(library.nowPlayingExpanded ? .hidden : .visible, for: .windowToolbar)
         .toolbarBackground(.hidden, for: .windowToolbar)
         .ignoresSafeArea(.container, edges: .top)
         .onChange(of: app.selection) { _, _ in library.resetNavigation() }
+        .onChange(of: library.player.currentTrack?.guid) { _, guid in
+            if guid == nil { library.nowPlayingExpanded = false }
+        }
+        .onExitCommand {
+            if library.nowPlayingExpanded { library.nowPlayingExpanded = false }
+        }
         .onChange(of: actions.revision) { _, _ in Task { await library.search.clear() } }
         .onChange(of: library.downloads.message) { _, message in
             if let message { actions.notice = message }

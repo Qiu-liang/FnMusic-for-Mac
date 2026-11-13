@@ -6,23 +6,17 @@ struct LyricsView: View {
     @State private var follow = true
     private let highlightAnchorY: CGFloat = 0.1
 
-    private struct Entry: Identifiable {
-        let id: Int
-        let text: String
-        var translations: [String] = []
-    }
-
     var body: some View {
         @Bindable var model = library.lyricsPanel
         let track = library.player.currentTrack
         let current = model.parsed.currentIndex(at: library.player.elapsed)
+        let entries = model.displayEntries
 
         VStack(spacing: 0) {
             panelHeader(model: model)
             ScrollViewReader { proxy in
                 GeometryReader { geometry in
                     ScrollView {
-                        let entries = displayEntries(model.parsed.lines)
                         if model.loading {
                             ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(.top, 50)
                         } else if let error = model.error {
@@ -131,19 +125,5 @@ struct LyricsView: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
         .frame(height: PageToolbarMetrics.height)
-    }
-
-    private func displayEntries(_ lines: [LyricLine]) -> [Entry] {
-        var entries: [Entry] = []
-        var precedingTimedEntry: Int?
-        for line in lines {
-            if line.time == nil, let precedingTimedEntry {
-                entries[precedingTimedEntry].translations.append(line.text)
-            } else {
-                entries.append(Entry(id: line.id, text: line.text))
-                precedingTimedEntry = line.time == nil ? nil : entries.count - 1
-            }
-        }
-        return entries
     }
 }

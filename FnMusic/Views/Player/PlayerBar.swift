@@ -84,22 +84,30 @@ struct PlayerBar: View {
         let player = library.player
         if let track = player.currentTrack {
             VStack(spacing: 1) {
-                Button { showProgress.toggle() } label: {
-                    HStack(spacing: 9) {
+                HStack(spacing: 9) {
+                    Button { library.nowPlayingExpanded = true } label: {
                         ArtworkView(coverId: track.coverId, cache: library.images, size: 160)
                             .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(.plain)
+                    .help("打开歌词页")
+                    .accessibilityLabel("\(track.displayTitle) 封面，打开歌词页")
+                    .accessibilityIdentifier("FnMusic.OpenNowPlaying")
+                    Button { showProgress.toggle() } label: {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(track.displayTitle).font(.system(size: 14, weight: .semibold)).lineLimit(1)
                             Text(track.artistText).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                         }
-                        Spacer(minLength: 0)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .frame(height: 36)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .help("查看歌曲与播放进度")
+                    .accessibilityLabel("\(track.displayTitle)，\(track.artistText)，查看播放进度")
+                    .popover(isPresented: $showProgress) { progressPopover }
+                    Spacer(minLength: 0)
                 }
-                .help("查看歌曲与播放进度")
-                .accessibilityLabel("\(track.displayTitle)，\(track.artistText)，查看播放进度")
-                .popover(isPresented: $showProgress) { progressPopover }
+                .frame(height: 36)
                 CompactPlaybackProgress(elapsed: player.elapsed, duration: player.duration, onSeek: player.seek)
                     .frame(height: 10)
             }
