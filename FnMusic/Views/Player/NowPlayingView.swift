@@ -24,6 +24,22 @@ enum NowPlayingMetrics {
     }
 }
 
+enum NowPlayingVolumeMetrics {
+    static let thumbWidth: CGFloat = 26
+
+    static func value(forX x: CGFloat, width: CGFloat, thumbWidth: CGFloat) -> Double {
+        guard width.isFinite, x.isFinite, width > thumbWidth else { return 0 }
+        let travel = width - thumbWidth
+        let position = min(max(x - thumbWidth / 2, 0), travel)
+        return Double(position / travel)
+    }
+
+    static func thumbOffset(for value: Double, width: CGFloat, thumbWidth: CGFloat) -> CGFloat {
+        guard width.isFinite, width > thumbWidth else { return 0 }
+        return min(max(0, value), 1) * (width - thumbWidth)
+    }
+}
+
 /// Distance-based lyric focus: the current line stays crisp and opaque while
 /// farther lines fade and blur, mirroring the reference player.
 enum NowPlayingLyricFocus {
@@ -102,8 +118,7 @@ struct NowPlayingView: View {
     // MARK: Top bar
 
     private var topBar: some View {
-        @Bindable var player = library.player
-        return HStack(spacing: 12) {
+        HStack(spacing: 12) {
             HStack(spacing: 0) {
                 Button(action: close) {
                     Image(systemName: "xmark")
@@ -133,27 +148,47 @@ struct NowPlayingView: View {
 
             Spacer(minLength: 0)
 
-            HStack(spacing: 9) {
-                AudioRoutePicker(player: player, buttonColor: .white)
-                    .frame(width: 22, height: 22)
-                Slider(value: $player.volume, in: 0...1)
-                    .controlSize(.mini)
-                    .frame(width: 92)
-                    .tint(.white)
-                    .accessibilityLabel("音量")
-                Image(systemName: player.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 18)
-                    .accessibilityHidden(true)
-            }
-            .foregroundStyle(.white.opacity(0.85))
-            .padding(.horizontal, 11)
-            .frame(height: 30)
-            .modifier(NowPlayingGlass())
+            volumeControl
         }
         .padding(.trailing, 18)
         .padding(.top, 13)
         .frame(height: 56)
+    }
+
+    private var volumeControl: some View {
+        @Bindable var player = library.player
+        return HStack(spacing: 10) {
+            AudioRoutePicker(player: player, buttonColor: .white)
+                .frame(width: 24, height: 24)
+                .padding(.trailing, 6)
+
+            Rectangle()
+                .fill(.white.opacity(0.2))
+                .frame(width: 1, height: 20)
+
+            NowPlayingVolumeSlider(value: $player.volume)
+                .frame(width: 112, height: 22)
+
+            Image(systemName: speakerSymbol(for: player.volume))
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 18)
+                .accessibilityHidden(true)
+        }
+        .foregroundStyle(.white.opacity(0.9))
+        .padding(.horizontal, 13)
+        .frame(height: 42)
+        .modifier(NowPlayingGlass())
+        .overlay {
+            Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 0.75)
+        }
+        .accessibilityIdentifier("FnMusic.NowPlayingVolume")
+    }
+
+    private func speakerSymbol(for volume: Double) -> String {
+        if volume == 0 { return "speaker.slash.fill" }
+        if volume < 0.34 { return "speaker.wave.1.fill" }
+        if volume < 0.67 { return "speaker.wave.2.fill" }
+        return "speaker.wave.3.fill"
     }
 
     // MARK: Main columns
@@ -419,6 +454,53 @@ private struct NowPlayingWindowAccessor: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: ObserverView, context: Context) {}
+}
+
+private struct NowPlayingVolumeSlider: View {
+    @Binding var value: Double
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let thumbWidth = NowPlayingVolumeMetrics.thumbWidth
+            let offset = NowPlayingVolumeMetrics.thumbOffset(for: value, width: width, thumbWidth: thumbWidth)
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.white.opacity(0.2))
+                    .frame(height: 4)
+                Capsule()
+                    .fill(.white.opacity(0.9))
+                    .frame(width: min(width, offset + thumbWidth / 2), height: 4)
+                Capsule()
+                    .fill(.white)
+                    .frame(width: thumbWidth, height: 14)
+                    .offset(x: offset)
+                    .shadow(color: .black.opacity(0.16), radius: 2, y: 1)
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        value = NowPlayingVolumeMetrics.value(
+                            forX: gesture.location.x,
+                            width: width,
+                            thumbWidth: thumbWidth
+                        )
+                    }
+            )
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("音量")
+        .accessibilityValue("\(Int((value * 100).rounded()))%")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: value = min(1, value + 0.05)
+            case .decrement: value = max(0, value - 0.05)
+            @unknown default: break
+            }
+        }
+    }
 }
 
 // MARK: - Background

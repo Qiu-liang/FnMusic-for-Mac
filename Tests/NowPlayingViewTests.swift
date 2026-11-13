@@ -21,6 +21,16 @@ final class NowPlayingViewTests: XCTestCase {
         XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 200, height: 200)), 88.4, accuracy: 0.01)
     }
 
+    func testVolumeSliderMapsThumbTravelToVolume() {
+        XCTAssertEqual(NowPlayingVolumeMetrics.value(forX: 0, width: 200, thumbWidth: 26), 0, accuracy: 0.001)
+        XCTAssertEqual(NowPlayingVolumeMetrics.value(forX: 100, width: 200, thumbWidth: 26), 0.5, accuracy: 0.001)
+        XCTAssertEqual(NowPlayingVolumeMetrics.value(forX: 200, width: 200, thumbWidth: 26), 1, accuracy: 0.001)
+        XCTAssertEqual(NowPlayingVolumeMetrics.value(forX: 100, width: 0, thumbWidth: 26), 0, accuracy: 0.001)
+        XCTAssertEqual(NowPlayingVolumeMetrics.thumbOffset(for: 0, width: 200, thumbWidth: 26), 0, accuracy: 0.001)
+        XCTAssertEqual(NowPlayingVolumeMetrics.thumbOffset(for: 0.5, width: 200, thumbWidth: 26), 87, accuracy: 0.001)
+        XCTAssertEqual(NowPlayingVolumeMetrics.thumbOffset(for: 1, width: 200, thumbWidth: 26), 174, accuracy: 0.001)
+    }
+
     func testVerticalScrollerBridgeHidesLegacyLyricsScroller() {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 500))
         let contentView = NSView(frame: scrollView.bounds)
