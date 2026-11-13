@@ -12,6 +12,7 @@ enum NowPlayingMetrics {
     static let paneLeadingRatio: CGFloat = 0.508
     static let trailingRatio: CGFloat = 0.05
     static let pausedArtworkScale: CGFloat = 0.73
+    static let topBarEdgeInset: CGFloat = 18
 
     static func artworkSize(for size: CGSize) -> CGFloat {
         guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return 300 }
@@ -144,13 +145,13 @@ struct NowPlayingView: View {
             .foregroundStyle(.white.opacity(0.9))
             .padding(2)
             .modifier(NowPlayingGlass())
-            .padding(.leading, 8)
+            .padding(.leading, NowPlayingMetrics.topBarEdgeInset)
 
             Spacer(minLength: 0)
 
             volumeControl
         }
-        .padding(.trailing, 18)
+        .padding(.trailing, NowPlayingMetrics.topBarEdgeInset)
         .padding(.top, 13)
         .frame(height: 56)
     }
