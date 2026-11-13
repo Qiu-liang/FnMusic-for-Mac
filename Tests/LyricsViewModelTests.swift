@@ -29,6 +29,23 @@ final class LyricsViewModelTests: XCTestCase {
         await assertLoadingNilIgnoresPendingRequest(failing: true)
     }
 
+    func testCancelledLoadDoesNotSurfaceLateFailure() async {
+        let service = SuspendedLyricsService()
+        let model = LyricsViewModel(service: service)
+        let load = Task { await model.load(trackGUID: "pending") }
+        await service.waitUntilPending()
+        // Cancel without a replacement load: the generation stays current, so
+        // only the Task.isCancelled guard can keep the late failure silent.
+        load.cancel()
+        await service.complete(failing: true)
+        await load.value
+        XCTAssertNil(model.error, "a cancelled load must not surface a late failure")
+        XCTAssertFalse(model.loading)
+        XCTAssertNil(model.selectedGUID)
+        XCTAssertTrue(model.variants.isEmpty)
+        XCTAssertTrue(model.parsed.lines.isEmpty)
+    }
+
     private func assertLoadingNilIgnoresPendingRequest(failing: Bool) async {
         let service = SuspendedLyricsService()
         let model = LyricsViewModel(service: service)

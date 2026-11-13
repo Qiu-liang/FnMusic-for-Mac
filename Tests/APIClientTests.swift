@@ -431,10 +431,12 @@ final class APIClientTests: XCTestCase {
         let request = URLRequest(url: URL(string: "https://example.invalid/music/api/v1/chunked")!)
 
         do {
+            // Cap between one fragment (13 bytes) and the whole body (39 bytes):
+            // the first callback fits, so only the accumulated total can overflow.
             _ = try await ChunkedDataTask.data(
                 for: request,
                 session: session,
-                responsePolicy: { _ in 4 },
+                responsePolicy: { _ in 20 },
                 overflowError: { APIError.invalidRange }
             )
             XCTFail("A cap must apply to the accumulated body, not each Data callback")

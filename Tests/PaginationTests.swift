@@ -203,4 +203,127 @@ final class PaginationTests: XCTestCase {
         XCTAssertNotNil(failing.error)
         XCTAssertFalse(failing.isLoading)
     }
+
+    // MARK: - Deterministic replacement races
+
+    func testCancelledPageCannotFinishReplacementRefresh() async {
+        let requests = ControlledResponses<Page<Track>>()
+        let model = makeModel { _, _ in try await requests.load() }
+        let old = Task { await model.loadMore() }
+        await fulfillment(of: [requests.firstStarted], timeout: 2)
+        old.cancel()
+        let replacement = Task { await model.refresh() }
+        await fulfillment(of: [requests.secondStarted], timeout: 2)
+
+        // Model a transport that completes cancellation only after the replacement starts.
+        await requests.fail(0, with: URLError(.cancelled))
+        await old.value
+        XCTAssertTrue(model.isLoading)
+        XCTAssertTrue(model.items.isEmpty)
+        XCTAssertNil(model.error)
+
+        await requests.succeed(1, with: Page(list: [Track(guid: "new")], total: 1))
+        await replacement.value
+        XCTAssertEqual(model.items.map(\.guid), ["new"])
+        XCTAssertFalse(model.isLoading)
+        XCTAssertFalse(model.hasMore)
+    }
+
+    func testStalePageFailureCannotReplaceNewRefreshState() async {
+        let requests = ControlledResponses<Page<Track>>()
+        let model = makeModel { _, _ in try await requests.load() }
+        let old = Task { await model.loadMore() }
+        await fulfillment(of: [requests.firstStarted], timeout: 2)
+        let replacement = Task { await model.refresh() }
+        await fulfillment(of: [requests.secondStarted], timeout: 2)
+        await requests.succeed(1, with: Page(list: [Track(guid: "new")], total: 1))
+        await replacement.value
+        await requests.fail(0, with: URLError(.timedOut))
+        await old.value
+
+        XCTAssertEqual(model.items.map(\.guid), ["new"])
+        XCTAssertEqual(model.total, 1)
+        XCTAssertNil(model.error)
+        XCTAssertFalse(model.isLoading)
+        XCTAssertFalse(model.hasMore)
+    }
+
+    func testCancelledPlaylistRefreshDoesNotSwallowReplacement() async {
+        let requests = ControlledResponses<[Playlist]>()
+        let model = PlaylistListViewModel(service: ControlledPlaylistService(requests: requests))
+        let old = Task { await model.refresh() }
+        await fulfillment(of: [requests.firstStarted], timeout: 2)
+        old.cancel()
+        let replacement = Task { await model.refresh() }
+        await fulfillment(of: [requests.secondStarted], timeout: 2)
+
+        await requests.succeed(0, with: [Playlist(guid: "old")])
+        await old.value
+        XCTAssertTrue(model.isLoading, "The old defer must not finish the replacement's loading state")
+        XCTAssertTrue(model.items.isEmpty)
+        XCTAssertNil(model.error)
+
+        await requests.succeed(1, with: [Playlist(guid: "new")])
+        await replacement.value
+        XCTAssertEqual(model.items.map(\.guid), ["new"])
+        XCTAssertFalse(model.isLoading)
+    }
+
+    func testStalePlaylistSuccessCannotOverwriteNewRefresh() async {
+        let requests = ControlledResponses<[Playlist]>()
+        let model = PlaylistListViewModel(service: ControlledPlaylistService(requests: requests))
+        let old = Task { await model.refresh() }
+        await fulfillment(of: [requests.firstStarted], timeout: 2)
+        let replacement = Task { await model.refresh() }
+        await fulfillment(of: [requests.secondStarted], timeout: 2)
+        await requests.succeed(1, with: [Playlist(guid: "new")])
+        await replacement.value
+        // No cancellation: generation identity alone must reject the older result.
+        await requests.succeed(0, with: [Playlist(guid: "old")])
+        await old.value
+
+        XCTAssertEqual(model.items.map(\.guid), ["new"])
+        XCTAssertNil(model.error)
+        XCTAssertFalse(model.isLoading)
+    }
+}
+
+/// Deliberately ignores cancellation until the test resolves each request.
+private actor ControlledResponses<Value: Sendable> {
+    nonisolated let firstStarted = XCTestExpectation(description: "First request started")
+    nonisolated let secondStarted = XCTestExpectation(description: "Replacement request started")
+    private var count = 0
+    private var pending: [Int: CheckedContinuation<Value, Error>] = [:]
+
+    func load() async throws -> Value {
+        let index = count
+        count += 1
+        return try await withCheckedThrowingContinuation { continuation in
+            pending[index] = continuation
+            if index == 0 { firstStarted.fulfill() }
+            if index == 1 { secondStarted.fulfill() }
+        }
+    }
+
+    func succeed(_ index: Int, with value: Value) {
+        guard let continuation = pending.removeValue(forKey: index) else {
+            XCTFail("Missing controlled request \(index)")
+            return
+        }
+        continuation.resume(returning: value)
+    }
+
+    func fail(_ index: Int, with error: any Error) {
+        guard let continuation = pending.removeValue(forKey: index) else {
+            XCTFail("Missing controlled request \(index)")
+            return
+        }
+        continuation.resume(throwing: error)
+    }
+}
+
+private struct ControlledPlaylistService: PlaylistServiceProtocol {
+    let requests: ControlledResponses<[Playlist]>
+    func list() async throws -> [Playlist] { try await requests.load() }
+    func detail(guid: String) async throws -> Playlist { Playlist(guid: guid) }
 }

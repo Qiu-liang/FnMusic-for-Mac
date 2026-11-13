@@ -148,6 +148,20 @@ final class ModelTests: XCTestCase {
 
     // MARK: - Codable round trips
 
+    func testTrackDecodesServerPayloadWithNullsAndUnknownFields() throws {
+        let data = Data(#"{"guid":"track","title":null,"duration":224000,"album":{"guid":"album"},"artists":[{"guid":"artist","name":"艺人"}],"futureField":true}"#.utf8)
+        let track = try JSONDecoder().decode(Track.self, from: data)
+        XCTAssertEqual(track.durationSeconds, 224)
+        XCTAssertEqual(track.artistText, "艺人")
+        XCTAssertEqual(track.displayTitle, "未知歌曲")
+        XCTAssertNil(track.album?.trackCount)
+    }
+
+    func testPlaylistDecodesWithoutTrackCount() throws {
+        let playlist = try JSONDecoder().decode(Playlist.self, from: Data(#"{"guid":"p","name":"测试","coverId":null}"#.utf8))
+        XCTAssertNil(playlist.trackCount)
+    }
+
     func testTrackCodableRoundTrip() throws {
         let track = Track(guid: "t", title: "标题", duration: 123.4, artists: [Artist(guid: "a", name: "艺人")])
         let decoded = try JSONDecoder().decode(Track.self, from: JSONEncoder().encode(track))

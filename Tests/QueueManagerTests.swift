@@ -156,6 +156,20 @@ final class QueueManagerTests: XCTestCase {
         XCTAssertEqual(queue.tracks.count, 1)
     }
 
+    func testClearResetsShuffleAndSupportsReuse() {
+        let queue = makeQueue()
+        queue.shuffle = true
+        queue.next()
+        queue.clear()
+        XCTAssertNil(queue.current)
+        XCTAssertNil(queue.index)
+        XCTAssertNil(queue.next())
+        XCTAssertNil(queue.previous())
+        queue.append(Track(guid: "new"))
+        XCTAssertEqual(queue.current?.guid, "new")
+        XCTAssertNil(queue.previous())
+    }
+
     // MARK: - Shuffle pass invariants
 
     func testShufflePassVisitsEachDistinctGuidOnceIncludingDuplicates() {
