@@ -1,21 +1,38 @@
+import AppKit
 import XCTest
 @testable import FnMusic
 
 @MainActor
 final class NowPlayingViewTests: XCTestCase {
-    func testArtworkSizeRespectsWindowBounds() {
-        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 820, height: 600)), 246, accuracy: 0.01)
-        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 1280, height: 880)), 369.6, accuracy: 0.01)
-        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 1600, height: 1000)), 372, accuracy: 0.01)
+    func testArtworkSizeFollowsReferenceWindowProportions() {
+        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 820, height: 600)), 229.6, accuracy: 0.01)
+        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 1280, height: 880)), 358.4, accuracy: 0.01)
+        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 1379, height: 1047)), 386.12, accuracy: 0.01)
+        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 2560, height: 1440)), 716.8, accuracy: 0.01)
         XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 500, height: 400)), 200, accuracy: 0.01)
         XCTAssertEqual(NowPlayingMetrics.artworkSize(for: .zero), 300, accuracy: 0.01)
     }
 
-    func testPaneWidthKeepsLyricsReadableWithoutExceedingCap() {
-        XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 820, height: 600)), 478, accuracy: 0.01)
-        XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 1280, height: 880)), 560, accuracy: 0.01)
-        XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 1600, height: 1000)), 560, accuracy: 0.01)
-        XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 200, height: 200)), 300, accuracy: 0.01)
+    func testPaneWidthUsesRemainingReferenceColumnWithLargeScreenCap() {
+        XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 820, height: 600)), 362.44, accuracy: 0.01)
+        XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 1280, height: 880)), 565.76, accuracy: 0.01)
+        XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 1379, height: 1047)), 609.518, accuracy: 0.001)
+        XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 2560, height: 1440)), 780, accuracy: 0.01)
+        XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 200, height: 200)), 88.4, accuracy: 0.01)
+    }
+
+    func testVerticalScrollerBridgeHidesLegacyLyricsScroller() {
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 500))
+        let contentView = NSView(frame: scrollView.bounds)
+        scrollView.documentView = contentView
+        scrollView.hasVerticalScroller = true
+        let bridge = HideVerticalScroller.Bridge(frame: .zero)
+        contentView.addSubview(bridge)
+
+        bridge.apply()
+
+        XCTAssertFalse(scrollView.hasVerticalScroller)
+        XCTAssertEqual(scrollView.verticalScroller?.isHidden, true)
     }
 
     func testLyricFocusIsCrispOnCurrentLineAndDecaysOutward() {

@@ -6,21 +6,21 @@ import SwiftUI
 /// be checked without hosting SwiftUI.
 enum NowPlayingMetrics {
     static let minimumArtwork: CGFloat = 200
-    static let maximumArtwork: CGFloat = 372
-    static let maximumPaneWidth: CGFloat = 560
-    static let minimumPaneWidth: CGFloat = 300
-    static let outerSpacing: CGFloat = 24
-    static let columnGap: CGFloat = 48
+    static let maximumArtwork: CGFloat = 720
+    static let maximumPaneWidth: CGFloat = 780
+    static let leadingRatio: CGFloat = 0.11
+    static let paneLeadingRatio: CGFloat = 0.508
+    static let trailingRatio: CGFloat = 0.05
+    static let pausedArtworkScale: CGFloat = 0.73
 
     static func artworkSize(for size: CGSize) -> CGFloat {
         guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return 300 }
-        return min(maximumArtwork, max(minimumArtwork, min(size.width * 0.30, size.height * 0.42)))
+        return min(maximumArtwork, max(minimumArtwork, min(size.width * 0.28, size.height * 0.52)))
     }
 
     static func paneWidth(for size: CGSize) -> CGFloat {
         guard size.width.isFinite, size.width > 0 else { return maximumPaneWidth }
-        let remaining = size.width - artworkSize(for: size) - columnGap - outerSpacing * 2
-        return min(maximumPaneWidth, max(minimumPaneWidth, remaining))
+        return min(maximumPaneWidth, size.width * (1 - paneLeadingRatio - trailingRatio))
     }
 }
 
@@ -48,6 +48,8 @@ struct NowPlayingView: View {
     @Environment(LibraryContext.self) private var library
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var side: Side = .lyrics
+    @State private var isFullScreen = false
+    @State private var hostingWindow: NSWindow?
 
     private enum Side {
         case lyrics, queue
@@ -59,13 +61,10 @@ struct NowPlayingView: View {
                 NowPlayingBackground(coverId: library.player.currentTrack?.coverId)
                     .ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    topBar
-                    content(size: geometry.size)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(.top, 6)
-                        .padding(.bottom, 18)
-                }
+                content(size: geometry.size)
+
+                topBar
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
                 sideSwitch
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -74,7 +73,15 @@ struct NowPlayingView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .background(NowPlayingWindowAccessor(window: $hostingWindow))
         .environment(\.colorScheme, .dark)
+        .onAppear { updateFullScreenState() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
+            updateFullScreenState(notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
+            updateFullScreenState(notification)
+        }
         .onExitCommand { close() }
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
@@ -83,6 +90,13 @@ struct NowPlayingView: View {
 
     private func close() {
         library.nowPlayingExpanded = false
+    }
+
+    private func updateFullScreenState(_ notification: Notification? = nil) {
+        if let notifiedWindow = notification?.object as? NSWindow,
+           let hostingWindow, notifiedWindow !== hostingWindow { return }
+        let window = hostingWindow ?? NSApp.mainWindow ?? NSApp.keyWindow
+        isFullScreen = window?.styleMask.contains(.fullScreen) ?? false
     }
 
     // MARK: Top bar
@@ -100,11 +114,22 @@ struct NowPlayingView: View {
                 .help("关闭歌词页")
                 .accessibilityLabel("关闭歌词页")
                 .accessibilityIdentifier("FnMusic.NowPlayingClose")
+
+                Button {
+                    hostingWindow?.toggleFullScreen(nil)
+                } label: {
+                    Image(systemName: "macwindow")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .help(isFullScreen ? "退出全屏" : "进入全屏")
+                .accessibilityLabel(isFullScreen ? "退出全屏" : "进入全屏")
             }
             .foregroundStyle(.white.opacity(0.9))
             .padding(2)
             .modifier(NowPlayingGlass())
-            .padding(.leading, 84)
+            .padding(.leading, 8)
 
             Spacer(minLength: 0)
 
@@ -135,11 +160,14 @@ struct NowPlayingView: View {
 
     private func content(size: CGSize) -> some View {
         let artwork = NowPlayingMetrics.artworkSize(for: size)
+        let leading = size.width * NowPlayingMetrics.leadingRatio
+        let paneLeading = size.width * NowPlayingMetrics.paneLeadingRatio
+        let gap = max(24, paneLeading - leading - artwork)
         return HStack(alignment: .center, spacing: 0) {
-            Spacer(minLength: NowPlayingMetrics.outerSpacing)
-            leftColumn
+            Spacer().frame(width: leading)
+            leftColumn(artwork: artwork)
                 .frame(width: artwork, alignment: .leading)
-            Spacer(minLength: NowPlayingMetrics.columnGap)
+            Spacer().frame(width: gap)
             Group {
                 switch side {
                 case .lyrics:
@@ -148,29 +176,33 @@ struct NowPlayingView: View {
                     NowPlayingQueue()
                 }
             }
-            .frame(maxWidth: NowPlayingMetrics.paneWidth(for: size), maxHeight: .infinity, alignment: .top)
-            .layoutPriority(1)
-            Spacer(minLength: NowPlayingMetrics.outerSpacing)
+            .frame(width: NowPlayingMetrics.paneWidth(for: size))
+            .frame(maxHeight: .infinity, alignment: .top)
+            Spacer(minLength: 0)
         }
     }
 
-    private var leftColumn: some View {
+    private func leftColumn(artwork: CGFloat) -> some View {
         let player = library.player
+        let displayedArtwork = artwork * (player.isPlaying ? 1 : NowPlayingMetrics.pausedArtworkScale)
         return VStack(alignment: .leading, spacing: 0) {
             if let track = player.currentTrack {
                 ArtworkView(coverId: track.coverId, cache: library.images, size: 600)
+                    .frame(width: displayedArtwork, height: displayedArtwork)
                     .shadow(color: .black.opacity(0.42), radius: 30, y: 18)
                     .accessibilityLabel("\(track.displayTitle) 封面")
+                    .frame(width: artwork, height: artwork)
+                    .animation(reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.86), value: player.isPlaying)
 
                 VStack(alignment: .leading, spacing: 0) {
-                    HStack(alignment: .center, spacing: 8) {
+                    HStack(alignment: .center, spacing: 6) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(track.displayTitle)
-                                .font(.system(size: 17, weight: .semibold))
+                                .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                             Text(trackSubtitle(track))
-                                .font(.system(size: 12))
+                                .font(.system(size: 11))
                                 .foregroundStyle(.white.opacity(0.58))
                                 .lineLimit(1)
                         }
@@ -178,13 +210,13 @@ struct NowPlayingView: View {
                         favoriteButton(track)
                         trackMenu(track)
                     }
-                    .padding(.top, 22)
+                    .padding(.top, 16)
 
                     NowPlayingProgress(player: player)
-                        .padding(.top, 16)
+                        .padding(.top, 12)
 
                     playbackControls
-                        .padding(.top, 12)
+                        .padding(.top, 10)
                 }
             } else {
                 Image(systemName: "music.note")
@@ -340,12 +372,10 @@ struct NowPlayingView: View {
     // MARK: Lyrics / queue switch
 
     private var sideSwitch: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 8) {
             sideButton(.lyrics, symbol: "quote.bubble", label: "歌词")
             sideButton(.queue, symbol: "list.bullet", label: "待播清单")
         }
-        .padding(3)
-        .modifier(NowPlayingGlass())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("FnMusic.NowPlayingSideSwitch")
     }
@@ -354,9 +384,9 @@ struct NowPlayingView: View {
         Button { side = target } label: {
             Image(systemName: symbol)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(side == target ? .white : .white.opacity(0.35))
-                .frame(width: 30, height: 26)
-                .background(side == target ? .white.opacity(0.16) : .clear, in: Capsule())
+                .foregroundStyle(.white.opacity(side == target ? 0.95 : 0.5))
+                .frame(width: 32, height: 32)
+                .modifier(NowPlayingGlass())
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -364,6 +394,27 @@ struct NowPlayingView: View {
         .accessibilityLabel(label)
         .accessibilityValue(side == target ? "已选中" : "未选中")
     }
+}
+
+private struct NowPlayingWindowAccessor: NSViewRepresentable {
+    @Binding var window: NSWindow?
+
+    final class ObserverView: NSView {
+        var windowChanged: ((NSWindow?) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            windowChanged?(window)
+        }
+    }
+
+    func makeNSView(context: Context) -> ObserverView {
+        let view = ObserverView()
+        view.windowChanged = { window = $0 }
+        return view
+    }
+
+    func updateNSView(_ nsView: ObserverView, context: Context) {}
 }
 
 // MARK: - Background
@@ -389,13 +440,13 @@ private struct NowPlayingBackground: View {
                     .clipped()
                     .blur(radius: 72, opaque: true)
                     .saturation(1.35)
-                    .overlay(Color.black.opacity(0.34))
+                    .overlay(Color.black.opacity(0.48))
                     .id(coverId)
                     .transition(.opacity)
             }
 
             LinearGradient(
-                colors: [.black.opacity(0.04), .black.opacity(0.16), .black.opacity(0.48)],
+                colors: [.black.opacity(0.08), .black.opacity(0.20), .black.opacity(0.52)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -534,6 +585,7 @@ private struct NowPlayingLyrics: View {
                         .padding(.top, geometry.size.height * highlightAnchorY)
                         .padding(.bottom, geometry.size.height * (1 - highlightAnchorY))
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: current)
+                        .background(HideVerticalScroller())
                     }
                 }
                 .scrollIndicators(.hidden)
@@ -608,16 +660,22 @@ private struct NowPlayingQueue: View {
         let queue = library.player.queue
         let snapshot = queue.tracks
         return VStack(alignment: .leading, spacing: 0) {
+            modeControls(queue: queue)
+
             HStack(alignment: .firstTextBaseline) {
-                Text("待播清单")
-                    .font(.system(size: 16, weight: .semibold))
+                Text("继续播放")
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
                 Spacer(minLength: 8)
                 Text("\(snapshot.count) 首")
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.45))
             }
-            .padding(.bottom, 10)
+            Text("来自：当前播放队列")
+                .font(.system(size: 10))
+                .foregroundStyle(.white.opacity(0.42))
+                .padding(.top, 3)
+                .padding(.bottom, 10)
 
             Rectangle()
                 .fill(.white.opacity(0.12))
@@ -639,17 +697,44 @@ private struct NowPlayingQueue: View {
                         }
                     }
                 }
-                .scrollIndicators(.hidden)
-                .padding(.top, 2)
-
-                Text("仅包含已加入队列的歌曲")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.3))
-                    .padding(.top, 10)
+                .scrollIndicators(.automatic)
+                .contentMargins(.bottom, 16, for: .scrollContent)
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.top, 64)
+        .padding(.bottom, 64)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .accessibilityIdentifier("FnMusic.NowPlayingQueue")
+    }
+
+    private func modeControls(queue: QueueManager) -> some View {
+        HStack(spacing: 8) {
+            modeButton(symbol: "infinity", label: "列表循环", active: queue.repeatMode == .all) {
+                queue.repeatMode = queue.repeatMode == .all ? .off : .all
+            }
+            modeButton(symbol: "shuffle", label: "随机播放", active: queue.shuffle) {
+                queue.shuffle.toggle()
+            }
+        }
+        .padding(.vertical, 14)
+    }
+
+    private func modeButton(symbol: String, label: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol)
+                Text(label).lineLimit(1)
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(active ? Color.black.opacity(0.82) : .white.opacity(0.8))
+            .frame(maxWidth: .infinity, minHeight: 30)
+            .background(active ? .white.opacity(0.78) : .white.opacity(0.08), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityValue(active ? "开启" : "关闭")
     }
 
     private func row(_ track: Track, index: Int, isCurrent: Bool, snapshot: [Track]) -> some View {
@@ -657,9 +742,9 @@ private struct NowPlayingQueue: View {
             Button {
                 perform(index, snapshot: snapshot) { library.player.playQueueIndex($0) }
             } label: {
-                HStack(spacing: 11) {
+                HStack(spacing: 10) {
                     ArtworkView(coverId: track.coverId, cache: library.images, size: 160)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 34, height: 34)
                         .overlay {
                             if isCurrent {
                                 RoundedRectangle(cornerRadius: 5).fill(.black.opacity(0.35))
@@ -668,12 +753,12 @@ private struct NowPlayingQueue: View {
                                     .foregroundStyle(.white)
                             }
                         }
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(track.displayTitle)
-                            .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
+                            .font(.system(size: 12, weight: isCurrent ? .semibold : .regular))
                             .foregroundStyle(isCurrent ? Color.pink : .white.opacity(0.92))
                         Text(queueSubtitle(track))
-                            .font(.system(size: 11))
+                            .font(.system(size: 10))
                             .foregroundStyle(.white.opacity(0.48))
                     }
                     .lineLimit(1)
@@ -702,9 +787,9 @@ private struct NowPlayingQueue: View {
             .fixedSize()
             .accessibilityLabel("\(track.displayTitle)更多操作")
         }
-        .frame(height: 54)
+        .frame(height: 48)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(.white.opacity(0.08)).frame(height: 0.5)
+            Rectangle().fill(.white.opacity(0.08)).frame(height: 0.5).padding(.leading, 44)
         }
         .contextMenu {
             Button("立即播放") {
