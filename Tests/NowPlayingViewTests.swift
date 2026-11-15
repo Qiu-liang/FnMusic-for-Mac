@@ -1,4 +1,6 @@
 import AppKit
+import AVKit
+import SwiftUI
 import XCTest
 @testable import FnMusic
 
@@ -19,6 +21,127 @@ final class NowPlayingViewTests: XCTestCase {
         XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 1379, height: 1047)), 609.518, accuracy: 0.001)
         XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 2560, height: 1440)), 780, accuracy: 0.01)
         XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 200, height: 200)), 88.4, accuracy: 0.01)
+    }
+
+    func testTopBarDodgesFullScreenChromeStrip() {
+        // Windowed: ignores the full-screen safe area and aligns the capsules'
+        // vertical centerline with the window's traffic lights.
+        XCTAssertEqual(NowPlayingMetrics.topBarTopPadding(isFullScreen: false, safeAreaTop: 52), 7)
+        XCTAssertEqual(NowPlayingMetrics.topBarFrameHeight(isFullScreen: false, safeAreaTop: 52), 52)
+
+        // Full screen: AppKit's input-taking NSToolbarFullScreenWindow owns the
+        // top 52 pt, so the chrome must clear the whole reserved strip or its
+        // buttons are visible but never clicked.
+        let padding = NowPlayingMetrics.topBarTopPadding(isFullScreen: true, safeAreaTop: 52)
+        let height = NowPlayingMetrics.topBarFrameHeight(isFullScreen: true, safeAreaTop: 52)
+        XCTAssertEqual(padding, 65)
+        XCTAssertEqual(height, 104)
+        XCTAssertGreaterThanOrEqual(padding, 52, "the pill must start below the reserved strip")
+
+        // An absent or nonsensical safe area never moves the chrome.
+        XCTAssertEqual(NowPlayingMetrics.topBarTopPadding(isFullScreen: true, safeAreaTop: 0), 13)
+        XCTAssertEqual(NowPlayingMetrics.topBarTopPadding(isFullScreen: true, safeAreaTop: -8), 13)
+        XCTAssertEqual(NowPlayingMetrics.topBarTopPadding(isFullScreen: true, safeAreaTop: .infinity), 13)
+        XCTAssertEqual(NowPlayingMetrics.topBarTopPadding(isFullScreen: true, safeAreaTop: .nan), 13)
+    }
+
+    func testTopBarAlignsVerticallyWithWindowTrafficLights() {
+        let defaultTop = NowPlayingMetrics.topBarTopPadding(isFullScreen: false, safeAreaTop: 0)
+        XCTAssertEqual(
+            defaultTop + NowPlayingMetrics.topBarControlHeight / 2,
+            NowPlayingMetrics.windowButtonCenterY,
+            accuracy: 0.01
+        )
+
+        let customTop = NowPlayingMetrics.topBarTopPadding(
+            isFullScreen: false,
+            safeAreaTop: 0,
+            trafficLightCenterY: 22
+        )
+        XCTAssertEqual(customTop, 3)
+        XCTAssertEqual(customTop + NowPlayingMetrics.topBarControlHeight / 2, 22, accuracy: 0.01)
+
+        // Invalid measurements fall back to the standard unified-toolbar center.
+        XCTAssertEqual(NowPlayingMetrics.topBarTopPadding(isFullScreen: false, safeAreaTop: 0, trafficLightCenterY: .nan), defaultTop)
+        XCTAssertEqual(NowPlayingMetrics.topBarTopPadding(isFullScreen: false, safeAreaTop: 0, trafficLightCenterY: -4), defaultTop)
+    }
+
+    func testHostedNowPlayingTopBarAlignsCapsulesWithTrafficLights() async throws {
+        let client = APIClient(origin: try APIClient.serverURL("https://nowplaying-layout.invalid"), token: "test-only")
+        let library = LibraryContext(client: client, user: User(guid: "nowplaying-layout-test"))
+        defer { library.player.shutdown() }
+
+        @MainActor final class BoundsBox { var rects: [String: CGRect] = [:] }
+        let box = BoundsBox()
+
+        let root = NowPlayingView()
+            .environment(library)
+            .onPreferenceChange(NowPlayingTopBarBoundsKey.self) { rects in
+                Task { @MainActor in box.rects = rects }
+            }
+            .ignoresSafeArea(.container, edges: .top)
+            .frame(width: 1280, height: 880)
+        let hosting = NSHostingController(rootView: root)
+        let window = NSWindow(contentViewController: hosting)
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.toolbar = NSToolbar(identifier: "nowplaying-layout-test")
+        window.setContentSize(NSSize(width: 1280, height: 880))
+        window.orderFrontRegardless()
+        defer { window.close() }
+
+        window.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(150))
+        window.layoutIfNeeded()
+
+        let contentView = try XCTUnwrap(window.contentView)
+        let closeWindowButton = try XCTUnwrap(window.standardWindowButton(.closeButton))
+        let routePicker = try XCTUnwrap(findSubview(ofType: AVRoutePickerView.self, in: contentView))
+
+        let trafficFrame = closeWindowButton.convert(closeWindowButton.bounds, to: contentView)
+        let routeFrame = routePicker.convert(routePicker.bounds, to: contentView)
+
+        let trafficMidYFromTop = contentView.isFlipped ? trafficFrame.midY : contentView.bounds.height - trafficFrame.midY
+        let routeMidYFromTop = contentView.isFlipped ? routeFrame.midY : contentView.bounds.height - routeFrame.midY
+
+        XCTAssertEqual(routeMidYFromTop, trafficMidYFromTop, accuracy: 1.0)
+        XCTAssertGreaterThanOrEqual(routeFrame.minX, trafficFrame.maxX)
+
+        let leftCapsule = try XCTUnwrap(box.rects["left"])
+        let rightCapsule = try XCTUnwrap(box.rects["right"])
+        XCTAssertEqual(leftCapsule.height, NowPlayingMetrics.topBarControlHeight, accuracy: 0.5)
+        XCTAssertEqual(rightCapsule.height, NowPlayingMetrics.topBarControlHeight, accuracy: 0.5)
+        XCTAssertEqual(leftCapsule.midY, trafficMidYFromTop, accuracy: 1.0)
+        XCTAssertEqual(rightCapsule.midY, trafficMidYFromTop, accuracy: 1.0)
+        XCTAssertEqual(leftCapsule.midY, rightCapsule.midY, accuracy: 0.5)
+        XCTAssertGreaterThanOrEqual(leftCapsule.minX, trafficFrame.maxX)
+
+        await client.close()
+    }
+
+    private func findSubview<T: NSView>(ofType type: T.Type, in view: NSView) -> T? {
+        if let match = view as? T { return match }
+        for subview in view.subviews {
+            if let found = findSubview(ofType: type, in: subview) { return found }
+        }
+        return nil
+    }
+
+    func testTopBarClearsTheWindowTrafficLights() {
+        // Windowed pages keep the window's own close/minimise/zoom buttons, which
+        // occupy 19...79 pt. The floating chrome must start after them, otherwise
+        // the close button sits on top of the page's own close control.
+        XCTAssertEqual(NowPlayingMetrics.topBarLeadingPadding(isFullScreen: false), 101)
+        XCTAssertGreaterThanOrEqual(
+            NowPlayingMetrics.topBarLeadingPadding(isFullScreen: false),
+            NowPlayingMetrics.windowButtonTrailing,
+            "the pill must start to the right of the traffic-light cluster"
+        )
+        XCTAssertEqual(NowPlayingMetrics.windowButtonReserve, 83)
+
+        // Full screen hides the traffic lights, so the chrome returns to the page inset.
+        XCTAssertEqual(NowPlayingMetrics.topBarLeadingPadding(isFullScreen: true), 18)
     }
 
     func testVolumeSliderMapsThumbTravelToVolume() {

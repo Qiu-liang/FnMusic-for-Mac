@@ -55,7 +55,11 @@ struct RootView: View {
             .clipped()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .toolbar(library.nowPlayingExpanded ? .hidden : .visible, for: .windowToolbar)
+        // The window toolbar stays visible so AppKit keeps the titlebar and its
+        // standard window buttons (traffic lights) alive. The immersive page hides
+        // only the toolbar's content view, which is what would draw page controls
+        // over the full-bleed lyrics background.
+        .toolbar(.visible, for: .windowToolbar)
         .toolbarBackground(.hidden, for: .windowToolbar)
         .ignoresSafeArea(.container, edges: .top)
         .onChange(of: app.selection) { _, _ in library.resetNavigation() }

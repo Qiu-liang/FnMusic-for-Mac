@@ -13,6 +13,61 @@ enum NowPlayingMetrics {
     static let trailingRatio: CGFloat = 0.05
     static let pausedArtworkScale: CGFloat = 0.73
     static let topBarEdgeInset: CGFloat = 18
+    /// Height of the floating top-bar glass capsules (32 pt buttons + 3 pt padding).
+    static let topBarControlHeight: CGFloat = 38
+    /// Standard gap between the full-screen reserved strip and the floating chrome.
+    static let topBarTopInset: CGFloat = 13
+    /// Height of the floating chrome row itself, matching `PageToolbarMetrics.height`.
+    static let topBarHeight: CGFloat = 52
+    /// Vertical center of the standard macOS traffic-light cluster (`y = 19...33`).
+    static let windowButtonCenterY: CGFloat = 26
+
+    /// In full screen AppKit reserves the top of the window for the auto-hiding
+    /// title/toolbar strip and installs an input-taking `NSToolbarFullScreenWindow`
+    /// over it. The immersive page ignores the safe area for its full-bleed
+    /// background, so anything it draws at the very top is visible but never
+    /// receives a click. The reserved strip is published as the window's top
+    /// safe-area inset (52 pt on current macOS with a hidden toolbar), so the
+    /// floating chrome dodges it whenever the window is full screen.
+    static func reservedTop(isFullScreen: Bool, safeAreaTop: CGFloat) -> CGFloat {
+        guard isFullScreen, safeAreaTop.isFinite else { return 0 }
+        return max(0, safeAreaTop)
+    }
+
+    static func topBarTopPadding(
+        isFullScreen: Bool,
+        safeAreaTop: CGFloat,
+        trafficLightCenterY: CGFloat? = nil
+    ) -> CGFloat {
+        if isFullScreen {
+            return topBarTopInset + reservedTop(isFullScreen: true, safeAreaTop: safeAreaTop)
+        }
+        let centerY: CGFloat
+        if let measured = trafficLightCenterY, measured.isFinite, measured > 0 {
+            centerY = measured
+        } else {
+            centerY = windowButtonCenterY
+        }
+        return max(0, centerY - topBarControlHeight / 2)
+    }
+
+    static func topBarFrameHeight(isFullScreen: Bool, safeAreaTop: CGFloat) -> CGFloat {
+        topBarHeight + reservedTop(isFullScreen: isFullScreen, safeAreaTop: safeAreaTop)
+    }
+
+    /// Standard macOS traffic-light cluster: three 14 pt buttons that end at 79 pt.
+    static let windowButtonTrailing: CGFloat = 79
+    /// Gap between the traffic lights and the floating chrome in the reference.
+    static let windowButtonGap: CGFloat = 22
+    /// Extra leading room the floating chrome needs so the traffic lights stay
+    /// clickable while the immersive page covers the window.
+    static let windowButtonReserve: CGFloat = windowButtonTrailing + windowButtonGap - topBarEdgeInset
+
+    /// Full screen hides the traffic lights, so the chrome returns to the plain
+    /// page-inset and only the reserved top strip is added there.
+    static func topBarLeadingPadding(isFullScreen: Bool) -> CGFloat {
+        isFullScreen ? topBarEdgeInset : topBarEdgeInset + windowButtonReserve
+    }
 
     static func artworkSize(for size: CGSize) -> CGFloat {
         guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return 300 }
@@ -60,12 +115,23 @@ enum NowPlayingLyricFocus {
     }
 }
 
+/// Publishes actual top-bar capsule bounds for native layout regression checks.
+/// SwiftUI does not evaluate this preference when no ancestor consumes it.
+struct NowPlayingTopBarBoundsKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
 /// Full-window now-playing page opened from the mini player's artwork.
 struct NowPlayingView: View {
     @Environment(LibraryContext.self) private var library
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var side: Side = .lyrics
     @State private var isFullScreen = false
+    @State private var fullScreenTopInset: CGFloat = 0
+    @State private var trafficLightCenterY: CGFloat?
     @State private var hostingWindow: NSWindow?
 
     private enum Side {
@@ -91,8 +157,10 @@ struct NowPlayingView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(NowPlayingWindowAccessor(window: $hostingWindow))
+        .background(NowPlayingWindowChrome())
         .environment(\.colorScheme, .dark)
         .onAppear { updateFullScreenState() }
+        .onChange(of: hostingWindow) { _, _ in updateFullScreenState() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
             updateFullScreenState(notification)
         }
@@ -113,7 +181,30 @@ struct NowPlayingView: View {
         if let notifiedWindow = notification?.object as? NSWindow,
            let hostingWindow, notifiedWindow !== hostingWindow { return }
         let window = hostingWindow ?? NSApp.mainWindow ?? NSApp.keyWindow
-        isFullScreen = window?.styleMask.contains(.fullScreen) ?? false
+        let fullScreen = window?.styleMask.contains(.fullScreen) ?? false
+        isFullScreen = fullScreen
+        // AppKit covers the top of a full-screen window with the auto-hiding
+        // title/toolbar strip and its input-taking NSToolbarFullScreenWindow.
+        // Read the strip height from the window instead of hard-coding a macOS
+        // version specific number; outside full screen there is no such overlay.
+        fullScreenTopInset = fullScreen ? (window?.contentView?.safeAreaInsets.top ?? 0) : 0
+        trafficLightCenterY = fullScreen ? nil : Self.measuredTrafficLightCenterY(in: window)
+    }
+
+    private static func measuredTrafficLightCenterY(in window: NSWindow?) -> CGFloat? {
+        guard let window,
+              let contentView = window.contentView,
+              let closeButton = window.standardWindowButton(.closeButton),
+              closeButton.bounds.height > 0,
+              contentView.bounds.height > 0
+        else { return nil }
+        let frameInContent = closeButton.convert(closeButton.bounds, to: contentView)
+        let centerFromTop = contentView.isFlipped
+            ? frameInContent.midY
+            : contentView.bounds.height - frameInContent.midY
+        return centerFromTop.isFinite && centerFromTop > 0 && centerFromTop < contentView.bounds.height / 2
+            ? centerFromTop
+            : nil
     }
 
     // MARK: Top bar
@@ -134,7 +225,9 @@ struct NowPlayingView: View {
                 Button {
                     hostingWindow?.toggleFullScreen(nil)
                 } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    Image(systemName: isFullScreen
+                          ? "arrow.down.right.and.arrow.up.left"
+                          : "arrow.up.left.and.arrow.down.right")
                         .font(.system(size: 18, weight: .medium))
                         .frame(width: 34, height: 32)
                 }
@@ -144,20 +237,34 @@ struct NowPlayingView: View {
             }
             .foregroundStyle(.white.opacity(0.96))
             .padding(3)
+            .frame(height: NowPlayingMetrics.topBarControlHeight)
             .modifier(NowPlayingGlass())
             .overlay {
                 Capsule().strokeBorder(.white.opacity(0.24), lineWidth: 0.8)
             }
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: NowPlayingTopBarBoundsKey.self, value: ["left": geometry.frame(in: .global)])
+                }
+                .allowsHitTesting(false)
+            }
             .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
-            .padding(.leading, NowPlayingMetrics.topBarEdgeInset)
+            .padding(.leading, NowPlayingMetrics.topBarLeadingPadding(isFullScreen: isFullScreen))
 
             Spacer(minLength: 0)
 
             volumeControl
         }
         .padding(.trailing, NowPlayingMetrics.topBarEdgeInset)
-        .padding(.top, 13)
-        .frame(height: 56)
+        .padding(.top, NowPlayingMetrics.topBarTopPadding(
+            isFullScreen: isFullScreen,
+            safeAreaTop: fullScreenTopInset,
+            trafficLightCenterY: trafficLightCenterY
+        ))
+        .frame(height: NowPlayingMetrics.topBarFrameHeight(
+            isFullScreen: isFullScreen,
+            safeAreaTop: fullScreenTopInset
+        ), alignment: .top)
     }
 
     private var volumeControl: some View {
@@ -181,10 +288,16 @@ struct NowPlayingView: View {
         }
         .foregroundStyle(.white.opacity(0.9))
         .padding(.horizontal, 13)
-        .frame(height: 42)
+        .frame(height: NowPlayingMetrics.topBarControlHeight)
         .modifier(NowPlayingGlass())
         .overlay {
             Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 0.75)
+        }
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: NowPlayingTopBarBoundsKey.self, value: ["right": geometry.frame(in: .global)])
+            }
+            .allowsHitTesting(false)
         }
         .accessibilityIdentifier("FnMusic.NowPlayingVolume")
     }
@@ -437,6 +550,56 @@ struct NowPlayingView: View {
         .help(label)
         .accessibilityLabel(label)
         .accessibilityValue(selected ? "已选中" : "未选中")
+    }
+}
+
+/// The immersive page covers the whole window, but the window's own traffic
+/// lights must stay available. SwiftUI hides the entire titlebar while the
+/// window toolbar is hidden, so the page keeps the toolbar visible and removes
+/// only the toolbar's *content view* — that content is what would otherwise draw
+/// the sidebar toggle on top of the page. The standard buttons live beside it in
+/// the titlebar and stay untouched.
+private struct NowPlayingWindowChrome: NSViewRepresentable {
+    func makeNSView(context: Context) -> ChromeView { ChromeView() }
+
+    func updateNSView(_ nsView: ChromeView, context: Context) { nsView.apply() }
+
+    static func dismantleNSView(_ nsView: ChromeView, coordinator: ()) { nsView.restore() }
+
+    final class ChromeView: NSView {
+        /// Never take clicks: the immersive page owns the whole window.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil { restore() } else { apply() }
+        }
+
+        /// Idempotent: called on every SwiftUI update so a toolbar rebuild cannot
+        /// re-expose the sidebar toggle over the page.
+        func apply() {
+            guard let window, let titlebar = window.standardWindowButton(.closeButton)?.superview else { return }
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            setToolbarContent(in: titlebar, hidden: true)
+        }
+
+        func restore() {
+            guard let window, let titlebar = window.standardWindowButton(.closeButton)?.superview else { return }
+            setToolbarContent(in: titlebar, hidden: false)
+        }
+
+        /// Assigned only on change: this runs for every page update (the progress
+        /// line redraws continuously) and AppKit work belongs to actual changes.
+        private func setToolbarContent(in titlebar: NSView, hidden: Bool) {
+            for subview in titlebar.subviews where Self.isToolbarContent(subview) && subview.isHidden != hidden {
+                subview.isHidden = hidden
+            }
+        }
+
+        private static func isToolbarContent(_ view: NSView) -> Bool {
+            String(describing: type(of: view)).hasSuffix("ToolbarView")
+        }
     }
 }
 
