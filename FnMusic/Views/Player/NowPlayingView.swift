@@ -5,18 +5,28 @@ import SwiftUI
 /// Layout math for the immersive page. Kept pure so window-size behavior can
 /// be checked without hosting SwiftUI.
 enum NowPlayingMetrics {
-    static let minimumArtwork: CGFloat = 200
-    static let maximumArtwork: CGFloat = 720
-    static let maximumPaneWidth: CGFloat = 780
-    static let leadingRatio: CGFloat = 0.11
+    static let leadingRatio: CGFloat = 0.1104
+    static let artworkWidthRatio: CGFloat = 0.2783
+    static let artworkHeightRatio: CGFloat = 0.495
     static let paneLeadingRatio: CGFloat = 0.508
-    static let trailingRatio: CGFloat = 0.05
+    static let trailingRatio: CGFloat = 0.044
+    static let defaultArtwork: CGFloat = 300
+    static let defaultPaneWidth: CGFloat = 574
     static let pausedArtworkScale: CGFloat = 0.73
-    static let topBarEdgeInset: CGFloat = 18
+    static let lyricFontRatio: CGFloat = 0.066
+    static let lyricSpacingRatio: CGFloat = 0.074
+    static let lyricTranslationFontRatio: CGFloat = 0.035
+    static let minimumLyricFontSize: CGFloat = 18
+    static let minimumLyricLineSpacing: CGFloat = 16
+    static let lyricHighlightAnchorY: CGFloat = 0.31
+    static let playbackCenterPitchRatio: CGFloat = 0.122
+    static let playbackPrevButtonWidth: CGFloat = 36
+    static let playbackPlayButtonWidth: CGFloat = 46
+    static let topBarEdgeInset: CGFloat = 8
     /// Height of the floating top-bar glass capsules (32 pt buttons + 3 pt padding).
     static let topBarControlHeight: CGFloat = 38
     /// Standard gap between the full-screen reserved strip and the floating chrome.
-    static let topBarTopInset: CGFloat = 13
+    static let topBarTopInset: CGFloat = 8
     /// Height of the floating chrome row itself, matching `PageToolbarMetrics.height`.
     static let topBarHeight: CGFloat = 52
     /// Vertical center of the standard macOS traffic-light cluster (`y = 19...33`).
@@ -70,13 +80,31 @@ enum NowPlayingMetrics {
     }
 
     static func artworkSize(for size: CGSize) -> CGFloat {
-        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return 300 }
-        return min(maximumArtwork, max(minimumArtwork, min(size.width * 0.28, size.height * 0.52)))
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return defaultArtwork }
+        return min(size.width * artworkWidthRatio, size.height * artworkHeightRatio)
     }
 
     static func paneWidth(for size: CGSize) -> CGFloat {
-        guard size.width.isFinite, size.width > 0 else { return maximumPaneWidth }
-        return min(maximumPaneWidth, size.width * (1 - paneLeadingRatio - trailingRatio))
+        guard size.width.isFinite, size.width > 0 else { return defaultPaneWidth }
+        return size.width * (1 - paneLeadingRatio - trailingRatio)
+    }
+
+    static func lyricFontSize(for size: CGSize) -> CGFloat {
+        max(minimumLyricFontSize, artworkSize(for: size) * lyricFontRatio)
+    }
+
+    static func lyricLineSpacing(for size: CGSize) -> CGFloat {
+        max(minimumLyricLineSpacing, artworkSize(for: size) * lyricSpacingRatio)
+    }
+
+    static func lyricTranslationFontSize(for size: CGSize) -> CGFloat {
+        max(12, artworkSize(for: size) * lyricTranslationFontRatio)
+    }
+
+    static func playbackClusterSpacing(forArtwork artwork: CGFloat) -> CGFloat {
+        guard artwork.isFinite, artwork > 0 else { return 16 }
+        let baseHalfWidths = (playbackPrevButtonWidth + playbackPlayButtonWidth) / 2
+        return max(8, artwork * playbackCenterPitchRatio - baseHalfWidths)
     }
 }
 
@@ -104,13 +132,13 @@ enum NowPlayingLyricFocus {
         let opacity: Double
     }
 
-    static let maximumBlur: CGFloat = 5
+    static let maximumBlur: CGFloat = 2.0
 
     static func style(distance: Int) -> Style {
         let distance = max(0, distance)
         guard distance > 0 else { return Style(blur: 0, opacity: 1) }
-        let opacity = max(0.18, 0.70 - Double(distance - 1) * 0.06)
-        let blur = min(maximumBlur, CGFloat(distance - 1) * 0.9)
+        let opacity = max(0.32, 0.56 - Double(distance - 1) * 0.025)
+        let blur = min(maximumBlur, CGFloat(distance - 1) * 0.25)
         return Style(blur: blur, opacity: opacity)
     }
 }
@@ -157,8 +185,8 @@ private struct NowPlayingContentView: View {
 
                 sideSwitch
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 16)
+                    .padding(.trailing, 10)
+                    .padding(.bottom, 10)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -321,7 +349,7 @@ private struct NowPlayingContentView: View {
             Group {
                 switch side {
                 case .lyrics:
-                    NowPlayingLyrics(trackGUID: library.player.currentTrack?.guid)
+                    NowPlayingLyrics(trackGUID: library.player.currentTrack?.guid, windowSize: size)
                 case .queue:
                     NowPlayingQueue()
                 }
@@ -345,8 +373,8 @@ private struct NowPlayingContentView: View {
                     .animation(reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.86), value: player.isPlaying)
 
                 VStack(alignment: .leading, spacing: 0) {
-                    HStack(alignment: .center, spacing: 6) {
-                        VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .center, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 3) {
                             Text(track.displayTitle)
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(.white)
@@ -360,13 +388,13 @@ private struct NowPlayingContentView: View {
                         favoriteButton(track)
                         trackMenu(track)
                     }
-                    .padding(.top, 16)
+                    .padding(.top, 22)
 
                     NowPlayingProgress(player: player)
-                        .padding(.top, 12)
+                        .padding(.top, 24)
 
-                    playbackControls
-                        .padding(.top, 10)
+                    playbackControls(artwork: artwork)
+                        .padding(.top, 14)
                 }
             } else {
                 Image(systemName: "music.note")
@@ -394,12 +422,12 @@ private struct NowPlayingContentView: View {
                     ProgressView().controlSize(.mini)
                 } else {
                     Image(systemName: favorite ? "star.fill" : "star")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(favorite ? Color.pink : .white.opacity(0.8))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(favorite ? Color.pink : .white.opacity(0.85))
                 }
             }
-            .frame(width: 28, height: 28)
-            .background(.white.opacity(0.12), in: Circle())
+            .frame(width: 24, height: 24)
+            .background(.white.opacity(0.14), in: Circle())
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -433,16 +461,25 @@ private struct NowPlayingContentView: View {
                 Button("查看艺人") { open(.artist(artist)) }
             }
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.8))
-                .frame(width: 28, height: 28)
-                .background(.white.opacity(0.12), in: Circle())
-                .contentShape(Circle())
+            Text("...")
+                .font(.system(size: 24, weight: .regular))
+                .foregroundStyle(.clear)
+                .accessibilityHidden(true)
+                .frame(width: 24, height: 24)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        .frame(width: 24, height: 24)
+        .background(.white.opacity(0.14), in: Circle())
+        .overlay {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.85))
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .contentShape(Circle())
         .help("更多操作")
         .accessibilityLabel("\(track.displayTitle)更多操作")
     }
@@ -452,9 +489,10 @@ private struct NowPlayingContentView: View {
         library.navigation.append(route)
     }
 
-    private var playbackControls: some View {
+    private func playbackControls(artwork: CGFloat) -> some View {
         let player = library.player
         let queue = player.queue
+        let clusterSpacing = NowPlayingMetrics.playbackClusterSpacing(forArtwork: artwork)
         return HStack(spacing: 0) {
             Button { queue.shuffle.toggle() } label: {
                 Image(systemName: "shuffle")
@@ -468,40 +506,38 @@ private struct NowPlayingContentView: View {
 
             Spacer(minLength: 0)
 
-            Button { player.previous() } label: {
-                Image(systemName: "backward.fill")
-                    .font(.system(size: 18, weight: .medium))
-                    .frame(width: 36, height: 36)
-            }
-            .help("上一首")
-            .accessibilityLabel("上一首")
-
-            Spacer(minLength: 0)
-
-            Button { player.toggle() } label: {
-                ZStack {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 26, weight: .semibold))
-                        .opacity(player.isLoading ? 0 : 1)
-                    if player.isLoading {
-                        ProgressView().controlSize(.small).tint(.white)
-                    }
+            HStack(spacing: clusterSpacing) {
+                Button { player.previous() } label: {
+                    Image(systemName: "backward.fill")
+                        .font(.system(size: 18, weight: .medium))
+                        .frame(width: NowPlayingMetrics.playbackPrevButtonWidth, height: 36)
                 }
-                .frame(width: 46, height: 40)
-                .contentShape(Rectangle())
-            }
-            .help(player.isPlaying ? "暂停" : "播放")
-            .accessibilityLabel(player.isPlaying ? "暂停" : "播放")
+                .help("上一首")
+                .accessibilityLabel("上一首")
 
-            Spacer(minLength: 0)
+                Button { player.toggle() } label: {
+                    ZStack {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 26, weight: .semibold))
+                            .opacity(player.isLoading ? 0 : 1)
+                        if player.isLoading {
+                            ProgressView().controlSize(.small).tint(.white)
+                        }
+                    }
+                    .frame(width: NowPlayingMetrics.playbackPlayButtonWidth, height: 40)
+                    .contentShape(Rectangle())
+                }
+                .help(player.isPlaying ? "暂停" : "播放")
+                .accessibilityLabel(player.isPlaying ? "暂停" : "播放")
 
-            Button { player.next() } label: {
-                Image(systemName: "forward.fill")
-                    .font(.system(size: 18, weight: .medium))
-                    .frame(width: 36, height: 36)
+                Button { player.next() } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.system(size: 18, weight: .medium))
+                        .frame(width: NowPlayingMetrics.playbackPrevButtonWidth, height: 36)
+                }
+                .help("下一首")
+                .accessibilityLabel("下一首")
             }
-            .help("下一首")
-            .accessibilityLabel("下一首")
 
             Spacer(minLength: 0)
 
@@ -522,11 +558,12 @@ private struct NowPlayingContentView: View {
     // MARK: Lyrics / queue switch
 
     private var sideSwitch: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 2) {
             sideButton(.lyrics, symbol: "quote.bubble", selectedSymbol: "quote.bubble.fill", label: "歌词")
             sideButton(.queue, symbol: "list.bullet", selectedSymbol: "list.bullet", label: "待播清单")
         }
-        .padding(4)
+        .padding(3)
+        .frame(height: NowPlayingMetrics.topBarControlHeight)
         .modifier(NowPlayingGlass())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("FnMusic.NowPlayingSideSwitch")
@@ -536,9 +573,9 @@ private struct NowPlayingContentView: View {
         let selected = side == target
         return Button { side = target } label: {
             Image(systemName: selected ? selectedSymbol : symbol)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(selected ? Color.black.opacity(0.72) : .white.opacity(0.68))
-                .frame(width: 38, height: 36)
+                .frame(width: 32, height: 32)
                 .background(selected ? .white.opacity(0.9) : .clear, in: Circle())
                 .shadow(color: selected ? .black.opacity(0.12) : .clear, radius: 2, y: 1)
                 .contentShape(Circle())
@@ -628,7 +665,7 @@ private struct NowPlayingBackground: View {
 
     var body: some View {
         ZStack {
-            Color(red: 0.055, green: 0.06, blue: 0.065)
+            Color(red: 0.14, green: 0.17, blue: 0.21)
 
             if !reduceTransparency, let image {
                 Rectangle()
@@ -639,15 +676,15 @@ private struct NowPlayingBackground: View {
                             .scaledToFill()
                     }
                     .clipped()
-                    .blur(radius: 72, opaque: true)
-                    .saturation(1.35)
-                    .overlay(Color.black.opacity(0.48))
+                    .blur(radius: 88, opaque: true)
+                    .saturation(1.15)
+                    .overlay(Color.black.opacity(0.18))
                     .id(coverId)
                     .transition(.opacity)
             }
 
             LinearGradient(
-                colors: [.black.opacity(0.08), .black.opacity(0.20), .black.opacity(0.52)],
+                colors: [.black.opacity(0.04), .black.opacity(0.10), .black.opacity(0.24)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -681,26 +718,57 @@ private struct NowPlayingProgress: View {
     @State private var seekValue: Double = 0
 
     var body: some View {
-        let elapsed = seeking ? seekValue : min(player.elapsed, max(1, player.duration))
+        let duration = max(1, player.duration)
+        let elapsed = seeking ? seekValue : min(player.elapsed, duration)
         let remaining = max(0, player.duration - elapsed)
-        return VStack(spacing: 4) {
-            Slider(
-                value: Binding(get: { elapsed }, set: { seekValue = $0 }),
-                in: 0...max(1, player.duration),
-                onEditingChanged: { editing in
-                    if editing {
-                        seekValue = player.elapsed
-                        seeking = true
-                    } else {
-                        player.seek(to: seekValue)
-                        seeking = false
-                    }
+        let progress = min(max(0, elapsed / duration), 1)
+        return VStack(spacing: 6) {
+            GeometryReader { geometry in
+                let width = max(0, geometry.size.width)
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(.white.opacity(0.24))
+                        .frame(height: 4.5)
+                    Capsule()
+                        .fill(.white.opacity(0.92))
+                        .frame(width: width * progress, height: 4.5)
                 }
-            )
-            .controlSize(.small)
-            .tint(.white.opacity(0.92))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { gesture in
+                            guard player.duration > 0, width > 0 else { return }
+                            let fraction = min(max(0, Double(gesture.location.x / width)), 1)
+                            seekValue = fraction * player.duration
+                            seeking = true
+                        }
+                        .onEnded { gesture in
+                            guard player.duration > 0, width > 0 else {
+                                seeking = false
+                                return
+                            }
+                            let fraction = min(max(0, Double(gesture.location.x / width)), 1)
+                            let target = fraction * player.duration
+                            seekValue = target
+                            seeking = false
+                            player.seek(to: target)
+                        }
+                )
+            }
+            .frame(height: 12)
             .disabled(player.duration <= 0)
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("播放进度")
+            .accessibilityValue(elapsed.playbackTime)
+            .accessibilityAdjustableAction { direction in
+                guard player.duration > 0 else { return }
+                switch direction {
+                case .increment: player.seek(to: min(player.duration, player.elapsed + 5))
+                case .decrement: player.seek(to: max(0, player.elapsed - 5))
+                @unknown default: break
+                }
+            }
 
             HStack {
                 Text(elapsed.playbackTime)
@@ -721,9 +789,10 @@ private struct NowPlayingProgress: View {
 
 private struct NowPlayingLyrics: View {
     let trackGUID: String?
+    var windowSize: CGSize = .zero
     @Environment(LibraryContext.self) private var library
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let highlightAnchorY: CGFloat = 0.42
+    private let highlightAnchorY: CGFloat = NowPlayingMetrics.lyricHighlightAnchorY
 
     var body: some View {
         let model = library.lyricsPanel
@@ -732,6 +801,11 @@ private struct NowPlayingLyrics: View {
         let currentEntry = entries.firstIndex { $0.id == current }
 
         GeometryReader { geometry in
+            let effectiveSize = windowSize.width > 0 && windowSize.height > 0 ? windowSize : geometry.size
+            let fontSize = NowPlayingMetrics.lyricFontSize(for: effectiveSize)
+            let lineSpacing = NowPlayingMetrics.lyricLineSpacing(for: effectiveSize)
+            let translationSize = NowPlayingMetrics.lyricTranslationFontSize(for: effectiveSize)
+
             ScrollViewReader { proxy in
                 ScrollView {
                     if model.loading {
@@ -776,10 +850,16 @@ private struct NowPlayingLyrics: View {
                         }
                         .frame(minHeight: geometry.size.height)
                     } else {
-                        LazyVStack(alignment: .leading, spacing: 24) {
+                        LazyVStack(alignment: .leading, spacing: lineSpacing) {
                             ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                                lyricLine(entry, distance: currentEntry.map { abs(index - $0) }, model: model)
-                                    .id(entry.id)
+                                lyricLine(
+                                    entry,
+                                    distance: currentEntry.map { abs(index - $0) },
+                                    model: model,
+                                    fontSize: fontSize,
+                                    translationSize: translationSize
+                                )
+                                .id(entry.id)
                             }
                         }
                         .padding(.horizontal, 4)
@@ -814,7 +894,13 @@ private struct NowPlayingLyrics: View {
         .accessibilityIdentifier("FnMusic.NowPlayingLyrics")
     }
 
-    private func lyricLine(_ entry: LyricDisplayEntry, distance: Int?, model: LyricsViewModel) -> some View {
+    private func lyricLine(
+        _ entry: LyricDisplayEntry,
+        distance: Int?,
+        model: LyricsViewModel,
+        fontSize: CGFloat,
+        translationSize: CGFloat
+    ) -> some View {
         let timed = model.parsed.isTimed
         let active = timed && distance == 0
         let style = timed
@@ -822,15 +908,15 @@ private struct NowPlayingLyrics: View {
             : NowPlayingLyricFocus.Style(blur: 0, opacity: 0.9)
         return VStack(alignment: .leading, spacing: 5) {
             Text(entry.text)
-                .font(.system(size: active ? 30 : 27, weight: active ? .bold : .semibold))
+                .font(.system(size: fontSize, weight: active ? .bold : .semibold))
                 .foregroundStyle(.white.opacity(style.opacity))
                 .blur(radius: active ? 0 : style.blur)
                 .fixedSize(horizontal: false, vertical: true)
             ForEach(Array(entry.translations.enumerated()), id: \.offset) { _, translation in
                 Text(translation)
-                    .font(.system(size: 13, weight: active ? .medium : .regular))
-                    .foregroundStyle(.white.opacity(active ? 0.62 : 0.32))
-                    .blur(radius: active ? 0 : min(style.blur, 2.5))
+                    .font(.system(size: translationSize, weight: active ? .medium : .regular))
+                    .foregroundStyle(.white.opacity(active ? 0.62 : 0.36))
+                    .blur(radius: active ? 0 : min(style.blur, 1.5))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

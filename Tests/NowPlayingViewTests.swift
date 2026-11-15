@@ -7,20 +7,48 @@ import XCTest
 @MainActor
 final class NowPlayingViewTests: XCTestCase {
     func testArtworkSizeFollowsReferenceWindowProportions() {
-        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 820, height: 600)), 229.6, accuracy: 0.01)
-        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 1280, height: 880)), 358.4, accuracy: 0.01)
-        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 1379, height: 1047)), 386.12, accuracy: 0.01)
-        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 2560, height: 1440)), 716.8, accuracy: 0.01)
-        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 500, height: 400)), 200, accuracy: 0.01)
-        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: .zero), 300, accuracy: 0.01)
+        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 820, height: 600)), 228.206, accuracy: 0.01)
+        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 1024, height: 576)), 284.979, accuracy: 0.01)
+        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 1280, height: 880)), 356.224, accuracy: 0.01)
+        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 1379, height: 1047)), 383.776, accuracy: 0.01)
+        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 2560, height: 1440)), 712.448, accuracy: 0.01)
+        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: CGSize(width: 500, height: 400)), 139.15, accuracy: 0.01)
+        XCTAssertEqual(NowPlayingMetrics.artworkSize(for: .zero), NowPlayingMetrics.defaultArtwork, accuracy: 0.01)
     }
 
-    func testPaneWidthUsesRemainingReferenceColumnWithLargeScreenCap() {
-        XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 820, height: 600)), 362.44, accuracy: 0.01)
-        XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 1280, height: 880)), 565.76, accuracy: 0.01)
-        XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 1379, height: 1047)), 609.518, accuracy: 0.001)
-        XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 2560, height: 1440)), 780, accuracy: 0.01)
-        XCTAssertEqual(NowPlayingMetrics.paneWidth(for: CGSize(width: 200, height: 200)), 88.4, accuracy: 0.01)
+    func testPaneWidthScalesProportionallyAcrossWindowSizes() {
+        let sizes = [
+            CGSize(width: 500, height: 400),
+            CGSize(width: 820, height: 600),
+            CGSize(width: 1024, height: 576),
+            CGSize(width: 1280, height: 880),
+            CGSize(width: 1379, height: 1047),
+            CGSize(width: 2560, height: 1440),
+            CGSize(width: 3840, height: 2160)
+        ]
+        for size in sizes {
+            let artwork = NowPlayingMetrics.artworkSize(for: size)
+            let pane = NowPlayingMetrics.paneWidth(for: size)
+            XCTAssertEqual(pane, size.width * 0.448, accuracy: 0.01)
+            XCTAssertEqual(pane / artwork, 0.448 / NowPlayingMetrics.artworkWidthRatio, accuracy: 0.01)
+        }
+        XCTAssertEqual(NowPlayingMetrics.paneWidth(for: .zero), NowPlayingMetrics.defaultPaneWidth, accuracy: 0.01)
+    }
+
+    func testLyricAndPlaybackMetricsScaleToReferenceProportions() {
+        let ref1024 = CGSize(width: 1024, height: 576)
+        let ref2560 = CGSize(width: 2560, height: 1440)
+
+        XCTAssertEqual(NowPlayingMetrics.lyricFontSize(for: ref1024), 18.81, accuracy: 0.05)
+        XCTAssertEqual(NowPlayingMetrics.lyricFontSize(for: ref2560), 47.02, accuracy: 0.05)
+        XCTAssertEqual(NowPlayingMetrics.lyricLineSpacing(for: ref1024), 21.09, accuracy: 0.05)
+        XCTAssertEqual(NowPlayingMetrics.lyricLineSpacing(for: ref2560), 52.72, accuracy: 0.05)
+        XCTAssertEqual(NowPlayingMetrics.lyricHighlightAnchorY, 0.31, accuracy: 0.001)
+
+        let artwork2560 = NowPlayingMetrics.artworkSize(for: ref2560)
+        let spacing2560 = NowPlayingMetrics.playbackClusterSpacing(forArtwork: artwork2560)
+        let centerPitch2560 = (NowPlayingMetrics.playbackPrevButtonWidth + NowPlayingMetrics.playbackPlayButtonWidth) / 2 + spacing2560
+        XCTAssertEqual(centerPitch2560 / 2.5, 34.77, accuracy: 0.1)
     }
 
     func testTopBarDodgesFullScreenChromeStrip() {
@@ -34,15 +62,15 @@ final class NowPlayingViewTests: XCTestCase {
         // buttons are visible but never clicked.
         let padding = NowPlayingMetrics.topBarTopPadding(isFullScreen: true, safeAreaTop: 52)
         let height = NowPlayingMetrics.topBarFrameHeight(isFullScreen: true, safeAreaTop: 52)
-        XCTAssertEqual(padding, 65)
+        XCTAssertEqual(padding, 60)
         XCTAssertEqual(height, 104)
         XCTAssertGreaterThanOrEqual(padding, 52, "the pill must start below the reserved strip")
 
         // An absent or nonsensical safe area never moves the chrome.
-        XCTAssertEqual(NowPlayingMetrics.topBarTopPadding(isFullScreen: true, safeAreaTop: 0), 13)
-        XCTAssertEqual(NowPlayingMetrics.topBarTopPadding(isFullScreen: true, safeAreaTop: -8), 13)
-        XCTAssertEqual(NowPlayingMetrics.topBarTopPadding(isFullScreen: true, safeAreaTop: .infinity), 13)
-        XCTAssertEqual(NowPlayingMetrics.topBarTopPadding(isFullScreen: true, safeAreaTop: .nan), 13)
+        XCTAssertEqual(NowPlayingMetrics.topBarTopPadding(isFullScreen: true, safeAreaTop: 0), 8)
+        XCTAssertEqual(NowPlayingMetrics.topBarTopPadding(isFullScreen: true, safeAreaTop: -8), 8)
+        XCTAssertEqual(NowPlayingMetrics.topBarTopPadding(isFullScreen: true, safeAreaTop: .infinity), 8)
+        XCTAssertEqual(NowPlayingMetrics.topBarTopPadding(isFullScreen: true, safeAreaTop: .nan), 8)
     }
 
     func testTopBarAlignsVerticallyWithWindowTrafficLights() {
@@ -138,10 +166,10 @@ final class NowPlayingViewTests: XCTestCase {
             NowPlayingMetrics.windowButtonTrailing,
             "the pill must start to the right of the traffic-light cluster"
         )
-        XCTAssertEqual(NowPlayingMetrics.windowButtonReserve, 83)
+        XCTAssertEqual(NowPlayingMetrics.windowButtonReserve, 93)
 
         // Full screen hides the traffic lights, so the chrome returns to the page inset.
-        XCTAssertEqual(NowPlayingMetrics.topBarLeadingPadding(isFullScreen: true), 18)
+        XCTAssertEqual(NowPlayingMetrics.topBarLeadingPadding(isFullScreen: true), 8)
     }
 
     func testVolumeSliderMapsThumbTravelToVolume() {
