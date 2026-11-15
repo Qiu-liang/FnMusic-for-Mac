@@ -168,6 +168,53 @@ final class NowPlayingViewTests: XCTestCase {
         XCTAssertEqual(scrollView.verticalScroller?.isHidden, true)
     }
 
+    func testWindowChromeHidesAndRestoresTitlebarBackdropAndToolbar() {
+        final class NSTitlebarBackgroundView: NSView {}
+        final class _NSTitlebarDecorationView: NSView {}
+        final class NSTitlebarContainerBlockingView: NSView {}
+        final class NSToolbarView: NSView {}
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 1200, height: 52))
+        let sidebarBackdrop = NSTitlebarBackgroundView(frame: NSRect(x: 0, y: 0, width: 206, height: 52))
+        let detailBackdrop = NSTitlebarBackgroundView(frame: NSRect(x: 206, y: 0, width: 994, height: 52))
+        let decoration = _NSTitlebarDecorationView(frame: container.bounds)
+        let blocker = NSTitlebarContainerBlockingView(frame: NSRect(x: 204, y: 0, width: 5, height: 52))
+        let titlebar = NSView(frame: container.bounds)
+        let toolbarView = NSToolbarView(frame: container.bounds)
+        let closeButton = NSButton(frame: NSRect(x: 19, y: 19, width: 14, height: 14))
+        let alreadyHidden = NSTitlebarBackgroundView(frame: .zero)
+        alreadyHidden.isHidden = true
+
+        titlebar.addSubview(toolbarView)
+        titlebar.addSubview(closeButton)
+        container.addSubview(sidebarBackdrop)
+        container.addSubview(detailBackdrop)
+        container.addSubview(alreadyHidden)
+        container.addSubview(decoration)
+        container.addSubview(blocker)
+        container.addSubview(titlebar)
+
+        let chrome = NowPlayingWindowChrome.ChromeView()
+        chrome.apply(toTitlebar: titlebar)
+
+        XCTAssertTrue(sidebarBackdrop.isHidden)
+        XCTAssertTrue(detailBackdrop.isHidden)
+        XCTAssertTrue(decoration.isHidden)
+        XCTAssertTrue(blocker.isHidden)
+        XCTAssertTrue(toolbarView.isHidden)
+        XCTAssertFalse(titlebar.isHidden)
+        XCTAssertFalse(closeButton.isHidden)
+
+        chrome.restore()
+
+        XCTAssertFalse(sidebarBackdrop.isHidden)
+        XCTAssertFalse(detailBackdrop.isHidden)
+        XCTAssertFalse(decoration.isHidden)
+        XCTAssertFalse(blocker.isHidden)
+        XCTAssertFalse(toolbarView.isHidden)
+        XCTAssertTrue(alreadyHidden.isHidden, "restore must not unhide views that were already hidden")
+    }
+
     func testLyricFocusIsCrispOnCurrentLineAndDecaysOutward() {
         let active = NowPlayingLyricFocus.style(distance: 0)
         XCTAssertEqual(active.blur, 0)
