@@ -50,6 +50,7 @@ final class WindowChromeTests: XCTestCase {
         )
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        window.toolbarStyle = .unified
         window.toolbar = NSToolbar(identifier: "FullScreenNotificationTest")
 
         var events: [(Bool, CGFloat)] = []
@@ -62,18 +63,126 @@ final class WindowChromeTests: XCTestCase {
         try? await Task.sleep(for: .milliseconds(30))
         XCTAssertEqual(events.last?.0, false)
         XCTAssertEqual(events.last?.1, 0)
+        XCTAssertTrue(window.delegate is FullScreenPresentationDelegateProxy)
 
         NotificationCenter.default.post(name: NSWindow.willEnterFullScreenNotification, object: window)
         try? await Task.sleep(for: .milliseconds(30))
         XCTAssertEqual(events.last?.0, true)
         XCTAssertEqual(events.last?.1, 0)
-        XCTAssertEqual(window.toolbar?.isVisible, false, "Full screen chrome must hide AppKit NSToolbar directly")
+        XCTAssertEqual(window.toolbar?.isVisible, true, "Full screen must keep native NSToolbar alive for native traffic lights")
+        XCTAssertEqual(window.toolbarStyle, .unifiedCompact, "Full screen must switch to compact toolbar style")
+        XCTAssertFalse(window.titlebarAppearsTransparent, "Full screen titlebar backing must be allowed for the hover bar")
 
         NotificationCenter.default.post(name: NSWindow.willExitFullScreenNotification, object: window)
         try? await Task.sleep(for: .milliseconds(30))
         XCTAssertEqual(events.last?.0, false)
         XCTAssertEqual(events.last?.1, 0)
-        XCTAssertEqual(window.toolbar?.isVisible, true, "Exiting full screen must restore AppKit NSToolbar visibility")
+        XCTAssertEqual(window.toolbar?.isVisible, true)
+        XCTAssertEqual(window.toolbarStyle, .unified, "Exiting full screen must restore the original toolbar style")
+        XCTAssertTrue(window.titlebarAppearsTransparent, "Exiting full screen must restore transparent windowed titlebar")
+    }
+
+    func testSplitViewBackdropsAndTopScrollPocketsAreHiddenWhileBottomViewsRemainVisible() {
+        final class NSTitlebarBackgroundView: NSView {}
+        final class NSScrollPocket: NSView {}
+        final class BackdropView: NSView {}
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let splitView = NSSplitView(frame: root.bounds)
+        let sidebarStrip = NSTitlebarBackgroundView(frame: NSRect(x: 0, y: 568, width: 200, height: 32))
+        let detailStrip = NSTitlebarBackgroundView(frame: NSRect(x: 200, y: 568, width: 600, height: 32))
+        splitView.addSubview(sidebarStrip)
+        splitView.addSubview(detailStrip)
+
+        let scrollView = NSScrollView(frame: NSRect(x: 200, y: 0, width: 600, height: 600))
+        // NSScrollView uses flipped coordinates, so y=0 sits at the top edge of root.
+        let topPocket = NSScrollPocket(frame: NSRect(x: 0, y: 0, width: 600, height: 32))
+        let topBackdrop = BackdropView(frame: NSRect(x: 0, y: 0, width: 600, height: 32))
+        let bottomPocket = NSScrollPocket(frame: NSRect(x: 0, y: 568, width: 600, height: 32))
+        scrollView.addSubview(topPocket)
+        scrollView.addSubview(topBackdrop)
+        scrollView.addSubview(bottomPocket)
+
+        let chrome = WindowTitlebarChrome.ChromeView()
+        root.addSubview(splitView)
+        root.addSubview(scrollView)
+        root.addSubview(chrome)
+
+        window.contentView = root
+        window.layoutIfNeeded()
+        chrome.apply()
+
+        XCTAssertTrue(sidebarStrip.isHidden, "Nested split-view sidebar titlebar strip must be hidden")
+        XCTAssertTrue(detailStrip.isHidden, "Nested split-view detail titlebar strip must be hidden")
+        XCTAssertTrue(topPocket.isHidden, "Top NSScrollPocket strip must be hidden")
+        XCTAssertTrue(topBackdrop.isHidden, "Top NSScrollView BackdropView must be hidden")
+        XCTAssertFalse(bottomPocket.isHidden, "Bottom scroll pockets must remain untouched")
+
+        chrome.restore()
+        XCTAssertFalse(sidebarStrip.isHidden)
+        XCTAssertFalse(topPocket.isHidden)
+    }
+
+    func testDelegateProxyInjectsAutoHideToolbarAndForwardsCallbacks() {
+        final class RecordingDelegate: NSObject, NSWindowDelegate {
+            var didResizeCount = 0
+            func windowDidResize(_ notification: Notification) {
+                didResizeCount += 1
+            }
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        let originalDelegate = RecordingDelegate()
+        window.delegate = originalDelegate
+
+        let chrome = WindowTitlebarChrome.ChromeView()
+        window.contentView = chrome
+        window.layoutIfNeeded()
+
+        XCTAssertTrue(window.delegate is FullScreenPresentationDelegateProxy)
+        let options = window.delegate?.window?(window, willUseFullScreenPresentationOptions: [.fullScreen])
+        XCTAssertEqual(options?.contains(.fullScreen), true)
+        XCTAssertEqual(options?.contains(.autoHideMenuBar), true)
+        XCTAssertEqual(options?.contains(.autoHideToolbar), true)
+
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
+        XCTAssertEqual(originalDelegate.didResizeCount, 1, "Proxy must forward unrelated NSWindowDelegate callbacks")
+
+        chrome.restore()
+        XCTAssertTrue(window.delegate === originalDelegate, "Restoring chrome must unwrap and restore the original delegate")
+    }
+
+    func testDetachedTitlebarWindowPreservesBackdropWhileWindowedChromeHidesIt() {
+        final class NSTitlebarBackgroundView: NSView {}
+        final class FakeToolbarView: NSView {}
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 40))
+        let titlebar = NSView(frame: container.bounds)
+        let backdrop = NSTitlebarBackgroundView(frame: container.bounds)
+        let toolbarView = FakeToolbarView(frame: container.bounds)
+        titlebar.addSubview(toolbarView)
+        container.addSubview(backdrop)
+        container.addSubview(titlebar)
+
+        let chrome = WindowTitlebarChrome.ChromeView()
+        chrome.apply(toTitlebar: titlebar, isDetachedTitlebarWindow: false)
+        XCTAssertTrue(toolbarView.isHidden)
+        XCTAssertTrue(backdrop.isHidden, "Windowed titlebar must hide backdrop")
+
+        chrome.apply(toTitlebar: titlebar, isDetachedTitlebarWindow: true)
+        XCTAssertTrue(toolbarView.isHidden, "Detached full-screen bar still hides toolbar content view")
+        XCTAssertFalse(backdrop.isHidden, "Detached full-screen NSToolbarFullScreenWindow must keep its backdrop visible")
     }
 
     func testNestedChromeModifierDoesNotRestoreParentWindowChromeOnDismiss() {

@@ -46,6 +46,7 @@ enum SidebarDestination: Hashable, Identifiable {
 
 struct SidebarView: View {
     @Environment(LibraryContext.self) private var library
+    @Environment(\.fullScreenTopInset) private var fullScreenTopInset
     @Binding var selection: SidebarDestination?
     var userName = "未连接"
     var serverName = "连接你的音乐资料库"
@@ -62,6 +63,7 @@ struct SidebarView: View {
                              onCreate: { creating = true },
                              onAllPlaylists: { selection = .playlists },
                              onRetry: refresh)
+                .padding(.top, max(PageToolbarMetrics.height, fullScreenTopInset))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             HStack(spacing: 8) {

@@ -10,7 +10,6 @@ private struct RootContentView: View {
     @Environment(AppState.self) private var app
     @Environment(LibraryContext.self) private var library
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.isWindowFullScreen) private var isWindowFullScreen
     @Environment(\.fullScreenTopInset) private var fullScreenTopInset
     @State private var unavailableQuery = ""
     @State private var pageToolbarHost = WindowPageToolbarHost()
@@ -63,14 +62,16 @@ private struct RootContentView: View {
             .clipped()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The window toolbar stays visible in windowed mode so AppKit keeps the
-        // titlebar and its standard window buttons (traffic lights) alive, while
-        // full screen hides the toolbar so macOS does not pin a 52 pt strip over
-        // the top of the screen.
-        .toolbar(isWindowFullScreen ? .hidden : .visible, for: .windowToolbar)
+        // Keep the native window toolbar alive in both windowed and full-screen
+        // modes so AppKit preserves native traffic lights, and auto-hide them
+        // in full screen until the pointer moves to the top edge.
+        .modifier(FullScreenOnHoverToolbarModifier())
         .toolbarBackground(.hidden, for: .windowToolbar)
         .ignoresSafeArea(.container, edges: .top)
-        .onChange(of: app.selection) { _, _ in library.resetNavigation() }
+        .onChange(of: app.selection) { _, _ in
+            library.resetNavigation()
+            NotificationCenter.default.post(name: .windowTitlebarChromeNeedsApply, object: nil)
+        }
         .onChange(of: library.player.currentTrack?.guid) { _, guid in
             if guid == nil { library.nowPlayingExpanded = false }
         }
@@ -124,7 +125,6 @@ private struct RootContentView: View {
             NavigationSplitView(columnVisibility: $library.columnVisibility) {
                 SidebarView(selection: $app.selection, userName: app.user?.name ?? "当前用户",
                             serverName: app.configuration?.serverName ?? "飞牛音乐")
-                    .padding(.top, max(PageToolbarMetrics.height, fullScreenTopInset))
                     .ignoresSafeArea(.container, edges: .top)
             } detail: {
                 NavigationStack(path: $library.navigation) {
@@ -147,6 +147,9 @@ private struct RootContentView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea(.container, edges: .top)
+                .onChange(of: library.navigation.count) { _, _ in
+                    NotificationCenter.default.post(name: .windowTitlebarChromeNeedsApply, object: nil)
+                }
             }
             .toolbar(removing: .sidebarToggle)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -196,6 +199,19 @@ private struct RootContentView: View {
                                            description: Text("歌单可能已删除，请重新加载歌单列表。"))
                 }
             }
+        }
+    }
+}
+
+private struct FullScreenOnHoverToolbarModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content
+                .toolbar(.visible, for: .windowToolbar)
+                .windowToolbarFullScreenVisibility(.onHover)
+        } else {
+            content
+                .toolbar(.visible, for: .windowToolbar)
         }
     }
 }

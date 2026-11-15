@@ -25,7 +25,7 @@ struct HomeView: View {
     }
 
     var body: some View {
-        MusicPageChrome(title: "主页", placeholder: "", query: $query, inset: .padded, toolbarStyle: .hidden) {
+        MusicPageChrome(title: "主页", placeholder: "", query: $query, inset: .scroll, toolbarStyle: .hidden) {
             EmptyView()
         } content: {
             ScrollView {
