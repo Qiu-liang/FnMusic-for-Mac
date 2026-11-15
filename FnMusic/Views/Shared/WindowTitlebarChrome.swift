@@ -93,6 +93,7 @@ struct WindowTitlebarChrome: NSViewRepresentable {
         private weak var observedWindow: NSWindow?
         private var hiddenViews = NSHashTable<NSView>.weakObjects()
         private var pendingFullScreenTransition: Bool?
+        private var didHideToolbarForFullScreen = false
         private var lastReportedFullScreen: Bool?
         private var lastReportedTopInset: CGFloat?
 
@@ -132,6 +133,9 @@ struct WindowTitlebarChrome: NSViewRepresentable {
         /// full-screen transition so AppKit cannot re-expose the toolbar or
         /// split-view titlebar strip.
         func apply() {
+            if let window {
+                syncToolbarVisibility(in: window, isFullScreen: effectiveFullScreen)
+            }
             reportMetricsIfNeeded()
             guard let window, let titlebar = window.standardWindowButton(.closeButton)?.superview else { return }
             window.titleVisibility = .hidden
@@ -156,21 +160,54 @@ struct WindowTitlebarChrome: NSViewRepresentable {
                 view.isHidden = false
             }
             hiddenViews.removeAllObjects()
+            if didHideToolbarForFullScreen {
+                if let toolbar = observedWindow?.toolbar, !toolbar.isVisible {
+                    toolbar.isVisible = true
+                }
+                didHideToolbarForFullScreen = false
+            }
         }
 
         static func fullScreenTopInset(for window: NSWindow?) -> CGFloat {
             guard let window, window.styleMask.contains(.fullScreen) else { return 0 }
-            // When the window toolbar is visible in full screen, AppKit pins a
-            // 52 pt NSToolbarFullScreenWindow over the top of the screen; when
-            // hidden (the normal full-screen state), the menu bar auto-hides
-            // offscreen (`safeAreaInsets.top == 0`) unless the user has disabled
-            // menu-bar auto-hide in System Settings.
-            return max(0, window.contentView?.safeAreaInsets.top ?? 0)
+            if window.toolbar?.isVisible == true {
+                return max(0, window.contentView?.safeAreaInsets.top ?? 0)
+            }
+            if let titlebarWindow = window.standardWindowButton(.closeButton)?.superview?.window,
+               titlebarWindow !== window,
+               titlebarWindow.isVisible,
+               titlebarWindow.alphaValue > 0.01,
+               !titlebarWindow.ignoresMouseEvents {
+                let overlap = window.frame.maxY - titlebarWindow.frame.minY
+                if overlap > 0.5 && titlebarWindow.frame.minY < window.frame.maxY - 0.5 {
+                    return min(overlap, max(0, window.contentView?.safeAreaInsets.top ?? overlap))
+                }
+            }
+            return 0
+        }
+
+        private var effectiveFullScreen: Bool {
+            pendingFullScreenTransition ?? (window?.styleMask.contains(.fullScreen) ?? false)
+        }
+
+        private func syncToolbarVisibility(in window: NSWindow, isFullScreen: Bool) {
+            guard let toolbar = window.toolbar else { return }
+            if isFullScreen {
+                if toolbar.isVisible {
+                    toolbar.isVisible = false
+                    didHideToolbarForFullScreen = true
+                }
+            } else if didHideToolbarForFullScreen {
+                if !toolbar.isVisible {
+                    toolbar.isVisible = true
+                }
+                didHideToolbarForFullScreen = false
+            }
         }
 
         private func reportMetricsIfNeeded() {
             guard let onMetricsChange else { return }
-            let isFullScreen = pendingFullScreenTransition ?? (window?.styleMask.contains(.fullScreen) ?? false)
+            let isFullScreen = effectiveFullScreen
             let topInset = Self.fullScreenTopInset(for: window)
             guard lastReportedFullScreen != isFullScreen || lastReportedTopInset != topInset else { return }
             lastReportedFullScreen = isFullScreen

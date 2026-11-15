@@ -1,6 +1,12 @@
 import SwiftUI
 
 struct RootView: View {
+    var body: some View {
+        RootContentView().modifier(WindowTitlebarChromeModifier())
+    }
+}
+
+private struct RootContentView: View {
     @Environment(AppState.self) private var app
     @Environment(LibraryContext.self) private var library
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -64,7 +70,6 @@ struct RootView: View {
         .toolbar(isWindowFullScreen ? .hidden : .visible, for: .windowToolbar)
         .toolbarBackground(.hidden, for: .windowToolbar)
         .ignoresSafeArea(.container, edges: .top)
-        .modifier(WindowTitlebarChromeModifier())
         .onChange(of: app.selection) { _, _ in library.resetNavigation() }
         .onChange(of: library.player.currentTrack?.guid) { _, guid in
             if guid == nil { library.nowPlayingExpanded = false }

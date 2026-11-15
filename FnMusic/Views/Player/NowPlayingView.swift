@@ -126,6 +126,12 @@ struct NowPlayingTopBarBoundsKey: PreferenceKey {
 
 /// Full-window now-playing page opened from the mini player's artwork.
 struct NowPlayingView: View {
+    var body: some View {
+        NowPlayingContentView().modifier(WindowTitlebarChromeModifier())
+    }
+}
+
+private struct NowPlayingContentView: View {
     @Environment(LibraryContext.self) private var library
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.isWindowFullScreen) private var isFullScreen
@@ -157,7 +163,6 @@ struct NowPlayingView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(NowPlayingWindowAccessor(window: $hostingWindow))
-        .modifier(WindowTitlebarChromeModifier())
         .environment(\.colorScheme, .dark)
         .onAppear { updateTrafficLightCenterY() }
         .onChange(of: hostingWindow) { _, _ in updateTrafficLightCenterY() }

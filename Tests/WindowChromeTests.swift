@@ -41,6 +41,41 @@ final class WindowChromeTests: XCTestCase {
         XCTAssertEqual(WindowTitlebarChrome.ChromeView.fullScreenTopInset(for: window), 0)
     }
 
+    func testFullScreenNotificationsToggleIsFullScreenStateAndResetTopInset() async {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.toolbar = NSToolbar(identifier: "FullScreenNotificationTest")
+
+        var events: [(Bool, CGFloat)] = []
+        let chrome = WindowTitlebarChrome.ChromeView()
+        chrome.onMetricsChange = { fullScreen, inset in
+            events.append((fullScreen, inset))
+        }
+        window.contentView = chrome
+        window.layoutIfNeeded()
+        try? await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(events.last?.0, false)
+        XCTAssertEqual(events.last?.1, 0)
+
+        NotificationCenter.default.post(name: NSWindow.willEnterFullScreenNotification, object: window)
+        try? await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(events.last?.0, true)
+        XCTAssertEqual(events.last?.1, 0)
+        XCTAssertEqual(window.toolbar?.isVisible, false, "Full screen chrome must hide AppKit NSToolbar directly")
+
+        NotificationCenter.default.post(name: NSWindow.willExitFullScreenNotification, object: window)
+        try? await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(events.last?.0, false)
+        XCTAssertEqual(events.last?.1, 0)
+        XCTAssertEqual(window.toolbar?.isVisible, true, "Exiting full screen must restore AppKit NSToolbar visibility")
+    }
+
     func testNestedChromeModifierDoesNotRestoreParentWindowChromeOnDismiss() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
