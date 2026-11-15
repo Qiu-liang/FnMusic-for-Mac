@@ -128,9 +128,9 @@ struct NowPlayingTopBarBoundsKey: PreferenceKey {
 struct NowPlayingView: View {
     @Environment(LibraryContext.self) private var library
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isWindowFullScreen) private var isFullScreen
+    @Environment(\.fullScreenTopInset) private var fullScreenTopInset
     @State private var side: Side = .lyrics
-    @State private var isFullScreen = false
-    @State private var fullScreenTopInset: CGFloat = 0
     @State private var trafficLightCenterY: CGFloat?
     @State private var hostingWindow: NSWindow?
 
@@ -157,15 +157,15 @@ struct NowPlayingView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(NowPlayingWindowAccessor(window: $hostingWindow))
-        .background(NowPlayingWindowChrome())
+        .modifier(WindowTitlebarChromeModifier())
         .environment(\.colorScheme, .dark)
-        .onAppear { updateFullScreenState() }
-        .onChange(of: hostingWindow) { _, _ in updateFullScreenState() }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
-            updateFullScreenState(notification)
-        }
+        .onAppear { updateTrafficLightCenterY() }
+        .onChange(of: hostingWindow) { _, _ in updateTrafficLightCenterY() }
+        .onChange(of: isFullScreen) { _, _ in updateTrafficLightCenterY() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
-            updateFullScreenState(notification)
+            if let notifiedWindow = notification.object as? NSWindow,
+               let hostingWindow, notifiedWindow !== hostingWindow { return }
+            updateTrafficLightCenterY()
         }
         .onExitCommand { close() }
         .accessibilityElement(children: .contain)
@@ -177,17 +177,9 @@ struct NowPlayingView: View {
         library.nowPlayingExpanded = false
     }
 
-    private func updateFullScreenState(_ notification: Notification? = nil) {
-        if let notifiedWindow = notification?.object as? NSWindow,
-           let hostingWindow, notifiedWindow !== hostingWindow { return }
+    private func updateTrafficLightCenterY() {
         let window = hostingWindow ?? NSApp.mainWindow ?? NSApp.keyWindow
-        let fullScreen = window?.styleMask.contains(.fullScreen) ?? false
-        isFullScreen = fullScreen
-        // AppKit covers the top of a full-screen window with the auto-hiding
-        // title/toolbar strip and its input-taking NSToolbarFullScreenWindow.
-        // Read the strip height from the window instead of hard-coding a macOS
-        // version specific number; outside full screen there is no such overlay.
-        fullScreenTopInset = fullScreen ? (window?.contentView?.safeAreaInsets.top ?? 0) : 0
+        let fullScreen = isFullScreen || (window?.styleMask.contains(.fullScreen) ?? false)
         trafficLightCenterY = fullScreen ? nil : Self.measuredTrafficLightCenterY(in: window)
     }
 
@@ -550,125 +542,6 @@ struct NowPlayingView: View {
         .help(label)
         .accessibilityLabel(label)
         .accessibilityValue(selected ? "已选中" : "未选中")
-    }
-}
-
-/// The immersive page covers the whole window, but the window's own traffic
-/// lights must stay available. SwiftUI hides the entire titlebar while the
-/// window toolbar is hidden, so the page keeps the toolbar visible and hides
-/// only the toolbar's *content view* and the split-view titlebar background /
-/// decoration siblings inside `NSTitlebarContainerView` (which in macOS full
-/// screen move into `NSToolbarFullScreenWindow` and would otherwise draw an
-/// opaque light-mode bar across the top of the lyrics background).
-struct NowPlayingWindowChrome: NSViewRepresentable {
-    func makeNSView(context: Context) -> ChromeView { ChromeView() }
-
-    func updateNSView(_ nsView: ChromeView, context: Context) { nsView.apply() }
-
-    static func dismantleNSView(_ nsView: ChromeView, coordinator: ()) { nsView.restore() }
-
-    final class ChromeView: NSView {
-        private weak var observedWindow: NSWindow?
-        private var hiddenViews = NSHashTable<NSView>.weakObjects()
-
-        deinit {
-            NotificationCenter.default.removeObserver(self)
-        }
-
-        /// Never take clicks: the immersive page owns the whole window.
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if observedWindow !== window {
-                restore()
-                unregisterWindowObservers()
-                observedWindow = window
-                if let window {
-                    registerWindowObservers(for: window)
-                }
-            }
-            if window != nil {
-                apply()
-            }
-        }
-
-        /// Idempotent: called on every SwiftUI update and full-screen transition
-        /// so AppKit cannot re-expose the toolbar or split-view titlebar strip.
-        func apply() {
-            guard let window, let titlebar = window.standardWindowButton(.closeButton)?.superview else { return }
-            window.titleVisibility = .hidden
-            window.titlebarAppearsTransparent = true
-            if let titlebarWindow = titlebar.window, titlebarWindow !== window {
-                titlebarWindow.isOpaque = false
-                titlebarWindow.backgroundColor = .clear
-            }
-            apply(toTitlebar: titlebar)
-        }
-
-        func apply(toTitlebar titlebar: NSView) {
-            hideMatchingSubviews(in: titlebar, matching: Self.isToolbarContent)
-            if let container = titlebar.superview {
-                hideMatchingSubviews(in: container, matching: Self.isTitlebarBackdrop)
-            }
-        }
-
-        func restore() {
-            for view in hiddenViews.allObjects where view.isHidden {
-                view.isHidden = false
-            }
-            hiddenViews.removeAllObjects()
-        }
-
-        /// Assigned only on change: this runs for every page update and AppKit
-        /// work belongs to actual changes.
-        private func hideMatchingSubviews(in root: NSView, matching predicate: (NSView) -> Bool) {
-            for subview in root.subviews where predicate(subview) {
-                if !subview.isHidden {
-                    subview.isHidden = true
-                    hiddenViews.add(subview)
-                }
-            }
-        }
-
-        private func registerWindowObservers(for window: NSWindow) {
-            let center = NotificationCenter.default
-            for name in [
-                NSWindow.willEnterFullScreenNotification,
-                NSWindow.didEnterFullScreenNotification,
-                NSWindow.willExitFullScreenNotification,
-                NSWindow.didExitFullScreenNotification
-            ] {
-                center.addObserver(
-                    self,
-                    selector: #selector(handleFullScreenNotification(_:)),
-                    name: name,
-                    object: window
-                )
-            }
-        }
-
-        private func unregisterWindowObservers() {
-            NotificationCenter.default.removeObserver(self)
-        }
-
-        @objc private func handleFullScreenNotification(_ notification: Notification) {
-            apply()
-            Task { @MainActor [weak self] in
-                self?.apply()
-            }
-        }
-
-        static func isToolbarContent(_ view: NSView) -> Bool {
-            String(describing: type(of: view)).hasSuffix("ToolbarView")
-        }
-
-        static func isTitlebarBackdrop(_ view: NSView) -> Bool {
-            let name = String(describing: type(of: view))
-            return name == "NSTitlebarBackgroundView"
-                || name == "_NSTitlebarDecorationView"
-                || name == "NSTitlebarContainerBlockingView"
-        }
     }
 }
 

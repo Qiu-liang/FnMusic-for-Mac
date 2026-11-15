@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AlbumsView: View {
     @Environment(LibraryContext.self) private var library
+    @Environment(\.fullScreenTopInset) private var fullScreenTopInset
     @State private var model: PagedViewModel<Album>
     @State private var controls: CatalogControls
     @State private var requestTask: Task<Void, Never>?
@@ -79,7 +80,7 @@ struct AlbumsView: View {
             // Keep the current date section in the titlebar as its heading
             // scrolls underneath the frosted surface.
             visibleDateGroup = AlbumDateGroup.allCases.last(where: {
-                if let y = offsets[$0] { return y <= PageToolbarMetrics.height + 1 }
+                if let y = offsets[$0] { return y <= PageToolbarMetrics.height + fullScreenTopInset + 1 }
                 return false
             }) ?? AlbumDateGroup.allCases.first(where: { offsets[$0] != nil })
         }

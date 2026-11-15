@@ -88,6 +88,7 @@ struct WindowPageToolbar: View {
 /// so a hidden page cannot overwrite the active toolbar's bindings or menus.
 struct MusicPageChrome<Options: View, Content: View>: View {
     @Environment(\.windowPageToolbarHost) private var windowHost
+    @Environment(\.fullScreenTopInset) private var fullScreenTopInset
     @State private var headerOwner = UUID()
     let title: String
     let placeholder: String
@@ -115,11 +116,12 @@ struct MusicPageChrome<Options: View, Content: View>: View {
     }
 
     var body: some View {
+        let topInset = Self.contentTopInset(toolbarStyle: toolbarStyle, fullScreenTopInset: fullScreenTopInset)
         ZStack(alignment: .top) {
             Group {
                 switch inset {
-                case .scroll: content.contentMargins(.top, PageToolbarMetrics.height, for: .scrollContent)
-                case .padded: content.padding(.top, PageToolbarMetrics.height)
+                case .scroll: content.contentMargins(.top, topInset, for: .scrollContent)
+                case .padded: content.padding(.top, topInset)
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
             if (windowHost == nil || !showsCommonOptions) && toolbarStyle != .hidden {
@@ -134,6 +136,13 @@ struct MusicPageChrome<Options: View, Content: View>: View {
                     value: windowHost != nil && showsCommonOptions ? [headerDescriptor] : [])
     }
 
+    static func contentTopInset(toolbarStyle: PageToolbarStyle, fullScreenTopInset: CGFloat) -> CGFloat {
+        if toolbarStyle == .hidden {
+            return max(PageToolbarMetrics.height, fullScreenTopInset)
+        }
+        return PageToolbarMetrics.height + fullScreenTopInset
+    }
+
     private var headerDescriptor: PageToolbarDescriptor {
         let buildOptions = options
         return PageToolbarDescriptor(owner: headerOwner, title: title, placeholder: placeholder,
@@ -145,6 +154,7 @@ struct MusicPageChrome<Options: View, Content: View>: View {
 private struct UnifiedPageToolbar<Options: View>: View {
     @Environment(LibraryContext.self) private var library
     @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.fullScreenTopInset) private var fullScreenTopInset
     let title: String
     let placeholder: String
     @Binding var query: String
@@ -184,7 +194,7 @@ private struct UnifiedPageToolbar<Options: View>: View {
                 searchField
             }
         }
-        .padding(.leading, showsCommonOptions && library.columnVisibility == .detailOnly ? 90 : 20).padding(.trailing, 10)
+        .padding(.leading, showsCommonOptions && library.columnVisibility == .detailOnly && fullScreenTopInset == 0 ? 90 : 20).padding(.trailing, 10)
         .frame(height: PageToolbarMetrics.height)
         .frame(maxWidth: .infinity)
         .background {
@@ -192,6 +202,7 @@ private struct UnifiedPageToolbar<Options: View>: View {
                 Color.clear.preference(key: PageToolbarBoundsKey.self, value: [title: geometry.frame(in: .global)])
             }.allowsHitTesting(false)
         }
+        .padding(.top, fullScreenTopInset)
         .background(alignment: .leading) {
             if style == .standard || style == .artist {
                 FloatingTopBackdrop(width: style == .artist ? ArtistPageMetrics.directoryWidth : nil)

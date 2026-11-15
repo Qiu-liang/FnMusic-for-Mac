@@ -59,7 +59,10 @@ struct FnMusicApp: App {
             .frame(minWidth: 820, minHeight: 600)
             .tint(.pink)
             .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
+            .modifier(WindowTitlebarChromeModifier())
             .focusEffectDisabled()
+            .onAppear { Self.syncAppAppearance(appearance) }
+            .onChange(of: appearance) { _, value in Self.syncAppAppearance(value) }
             .task {
                 #if DEBUG
                 // Hosted tests inject their own clients/windows. Never let test
@@ -105,6 +108,23 @@ struct FnMusicApp: App {
                 .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
                 .focusEffectDisabled()
         }
+    }
+
+    static func nsAppearance(for setting: String) -> NSAppearance? {
+        switch setting {
+        case "light": NSAppearance(named: .aqua)
+        case "dark": NSAppearance(named: .darkAqua)
+        default: nil
+        }
+    }
+
+    private static func syncAppAppearance(_ setting: String) {
+        #if DEBUG
+        if NSClassFromString("XCTestCase") != nil || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            return
+        }
+        #endif
+        NSApp.appearance = nsAppearance(for: setting)
     }
 
 }

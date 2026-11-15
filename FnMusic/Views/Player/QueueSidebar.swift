@@ -32,6 +32,7 @@ struct QueueSidebarBoundsKey: PreferenceKey {
 struct RightSidebar: View {
     @Environment(LibraryContext.self) private var library
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.fullScreenTopInset) private var fullScreenTopInset
 
     var body: some View {
         Group {
@@ -41,6 +42,7 @@ struct RightSidebar: View {
             case nil: EmptyView()
             }
         }
+        .padding(.top, fullScreenTopInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             if reduceTransparency { Color(nsColor: .windowBackgroundColor) }

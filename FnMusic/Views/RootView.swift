@@ -4,6 +4,8 @@ struct RootView: View {
     @Environment(AppState.self) private var app
     @Environment(LibraryContext.self) private var library
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isWindowFullScreen) private var isWindowFullScreen
+    @Environment(\.fullScreenTopInset) private var fullScreenTopInset
     @State private var unavailableQuery = ""
     @State private var pageToolbarHost = WindowPageToolbarHost()
 
@@ -55,13 +57,14 @@ struct RootView: View {
             .clipped()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The window toolbar stays visible so AppKit keeps the titlebar and its
-        // standard window buttons (traffic lights) alive. The immersive page hides
-        // only the toolbar's content view, which is what would draw page controls
-        // over the full-bleed lyrics background.
-        .toolbar(.visible, for: .windowToolbar)
+        // The window toolbar stays visible in windowed mode so AppKit keeps the
+        // titlebar and its standard window buttons (traffic lights) alive, while
+        // full screen hides the toolbar so macOS does not pin a 52 pt strip over
+        // the top of the screen.
+        .toolbar(isWindowFullScreen ? .hidden : .visible, for: .windowToolbar)
         .toolbarBackground(.hidden, for: .windowToolbar)
         .ignoresSafeArea(.container, edges: .top)
+        .modifier(WindowTitlebarChromeModifier())
         .onChange(of: app.selection) { _, _ in library.resetNavigation() }
         .onChange(of: library.player.currentTrack?.guid) { _, guid in
             if guid == nil { library.nowPlayingExpanded = false }
@@ -93,14 +96,14 @@ struct RootView: View {
             if !app.network.hasNetworkPath {
                 Label("网络不可用，请检查连接后重试", systemImage: "wifi.slash")
                     .font(.callout).padding(12).background(.regularMaterial, in: Capsule())
-                    .padding(.top, PageToolbarMetrics.height + 8)
+                    .padding(.top, PageToolbarMetrics.height + fullScreenTopInset + 8)
             } else if let notice = actions.notice {
                 HStack {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                     Text(notice).font(.callout)
                     Button { actions.notice = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
                 }.padding(12).background(.regularMaterial, in: Capsule())
-                .padding(.top, PageToolbarMetrics.height + 8)
+                .padding(.top, PageToolbarMetrics.height + fullScreenTopInset + 8)
                 .task(id: notice) {
                     try? await Task.sleep(for: .seconds(4))
                     if !Task.isCancelled { actions.notice = nil }
@@ -116,7 +119,7 @@ struct RootView: View {
             NavigationSplitView(columnVisibility: $library.columnVisibility) {
                 SidebarView(selection: $app.selection, userName: app.user?.name ?? "当前用户",
                             serverName: app.configuration?.serverName ?? "飞牛音乐")
-                    .padding(.top, PageToolbarMetrics.height)
+                    .padding(.top, max(PageToolbarMetrics.height, fullScreenTopInset))
                     .ignoresSafeArea(.container, edges: .top)
             } detail: {
                 NavigationStack(path: $library.navigation) {
