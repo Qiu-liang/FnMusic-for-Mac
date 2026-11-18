@@ -9,13 +9,13 @@ FnMusic 直接连接用户提供的飞牛音乐服务器，读取真实的歌曲
 ## 功能概览
 
 - 原生 macOS 界面：NavigationSplitView、可缩放窗口、浅色/深色模式、SF Symbols 和 Liquid Glass 风格回退。
-- 主页、资料库、歌曲、专辑、艺人和服务器歌单浏览；支持分页、排序、独立搜索和键盘导航。
+- 主页、最近添加、最近播放、喜爱歌曲、歌曲、专辑、艺人和服务器歌单浏览，以及只读风格与共享音乐库查看（页面选项菜单“导航 → 其他资料库”）；支持分页、排序、独立搜索和键盘导航。
 - AVPlayer 播放原文件流：播放/暂停、进度定位、音量、随机（每轮按歌曲去重，播完继续下一轮）、循环、队列和系统媒体控制。
-- AirPlay / 音频输出选择器，以及 macOS Now Playing 信息同步。
-- 普通歌词、LRC 时间戳歌词和部分 JSON 歌词格式解析，支持高亮、滚动和点击跳转。
-- 封面缓存、收藏、歌曲下载和播放列表操作。
-- 登录会话保存在 Keychain；服务器地址、账号和必要的会话信息按账户隔离。
-- 歌单创建、重命名、删除及歌曲增删属于**默认关闭的实验性写入功能**，需要在设置中显式开启并由用户逐次触发。  
+- AirPlay / 音频输出选择器，以及 macOS Now Playing 信息（含封面）同步。
+- 普通歌词、LRC 时间戳歌词和部分 JSON 歌词格式解析，支持高亮、滚动和点击跳转；提供右侧歌词 / 待播清单侧栏及沉浸式播放页（点击播放器封面或 `⇧⌘L`）。
+- 封面缓存、原文件 Range 下载、收藏状态切换和播放列表操作。
+- 当前登录会话保存在 Keychain，退出登录即清除；封面磁盘缓存按服务器与账户隔离并在退出时清理。
+- 收藏/取消收藏与歌单创建、重命名、删除及歌曲增删均属于**默认关闭的实验性写入功能**（H 级接口），需要在设置中显式开启并由用户逐次触发。
 
 ## 应用截图
 <img width="1371" height="993" alt="2e37f87596b58c76630acf7c9491086e" src="https://github.com/user-attachments/assets/d567bc99-3858-4511-b338-875d16e44e59" />
@@ -26,7 +26,7 @@ FnMusic 直接连接用户提供的飞牛音乐服务器，读取真实的歌曲
 
 - macOS 14.0 或更高版本（Apple Silicon 与 Intel）。
 - Xcode 26+ SDK；项目使用 Swift 6 language mode 和严格并发检查。
-- 当前开发验证工具链为 Xcode 27.0 / Swift 6.4。部分 Liquid Glass 效果在较旧系统上会回退为系统材质。
+- 当前开发验证工具链为 Xcode 27.2 / Swift 6.4.2。部分 Liquid Glass 效果在较旧系统上会回退为系统材质。
 - 无第三方 Swift Package、npm、CocoaPods 或额外播放器依赖。
 
 
@@ -53,6 +53,16 @@ xcodebuild -project FnMusic.xcodeproj -scheme FnMusic \
   -configuration Debug -derivedDataPath .build/DerivedData build
 ```
 
+### 运行测试
+
+仓库内的 `Tests/` 目录包含基于本地夹具与 `URLProtocol` 的单元测试和窗口/视图回归测试（不连接真实服务器）：
+
+```bash
+xcodebuild -project FnMusic.xcodeproj -scheme FnMusic \
+  -configuration Debug -destination 'platform=macOS' \
+  -derivedDataPath .build/DerivedData test
+```
+
 ### 生成分发包
 
 在 macOS 上运行以下脚本，会构建 Release Universal 应用，并在 `dist/` 中生成 ZIP 和 DMG：
@@ -73,7 +83,7 @@ xcodebuild -project FnMusic.xcodeproj -scheme FnMusic \
 
 ## 安全与隐私
 
-- 密码只在登录期间使用并转换为 SHA-256，不持久化密码；会话 token、服务器 origin 和必要用户资料写入 Keychain。
+- 密码只在登录期间使用并转换为 SHA-256，不持久化密码；当前会话 token、服务器 origin 和必要用户资料写入 Keychain，退出或会话失效时清除（`UserDefaults` 仅保存 `deviceId`、最近服务器地址与外观、播放等应用偏好）。
 - 默认使用 ephemeral `URLSession`，不使用系统 CookieStorage / URLCache；不绕过 TLS 验证，拒绝重定向。
 - 不收集遥测，不把 token、Cookie、请求体或认证头写入 Debug 日志；Release 构建不启用 Debug API 日志。
 - HTTP 仅为局域网兼容而保留，推荐始终使用 HTTPS。SHA-256 不能替代传输加密。
@@ -90,7 +100,7 @@ xcodebuild -project FnMusic.xcodeproj -scheme FnMusic \
 - 普通分页列表的随机播放只覆盖已加入队列的歌曲，不会自动拉取剩余分页；“漫游”会读取整个音乐库。
 - 队列中重复出现的同一首歌，一轮随机只播一次；重复条目仍保留在队列中，供手动播放或下一轮使用。
 - 队列不跨重启持久化；歌单封面上传、批量编辑、历史删除和跨用户共享管理尚未实现。
-- authx 签名、OAuth、首次初始化、管理员能力、完整流派模型等未验证功能不会被客户端臆测实现。
+- authx 签名、OAuth、首次初始化、管理员能力及非空流派未验证字段等能力不会被客户端臆测实现。
 
 ## 工程结构
 
@@ -100,11 +110,13 @@ FnMusic/
   App/                    应用状态、会话和依赖容器
   Core/                   网络、认证、Keychain 和图片缓存
   Models/                 API 实体和歌词解析
-  Services/               目录、搜索、歌词和实验性写入
+  Services/               目录、搜索、歌词、下载和实验性写入
   Player/                 AVPlayer、Range 资源加载和播放队列
-  ViewModels/             分页、连接、搜索和动作状态
-  Views/                  macOS 原生页面、设置和播放器
+  ViewModels/             分页、连接、搜索、下载和动作状态
+  Views/                  macOS 原生页面、设置、歌词和播放器
   Resources/              Info.plist 和原创图标资源
+Tests/                    单元测试与窗口/视图回归测试
+scripts/                  发布构建与 DMG/ZIP 打包脚本
 ```
 
 ## 相关仓库
