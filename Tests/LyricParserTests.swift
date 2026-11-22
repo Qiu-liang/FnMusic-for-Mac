@@ -36,6 +36,31 @@ final class LyricParserTests: XCTestCase {
         XCTAssertEqual(parsed.lines[1].time, 2.25)
     }
 
+    // MARK: - Enhanced (per-word) LRC
+
+    func testWordLevelTimestampsAreStrippedFromLyrics() {
+        let parsed = parse("[00:12.00]<00:12.00>You <00:12.50>ju<00:13.00>mp\n[00:15.00]<00:15.00>Again")
+        XCTAssertTrue(parsed.isTimed)
+        XCTAssertEqual(parsed.lines.map(\.text), ["You jump", "Again"])
+        XCTAssertEqual(parsed.lines.map(\.time), [12.0, 15.0])
+    }
+
+    func testWholeLineOfWordTimestampsBecomesNoteGlyph() {
+        let parsed = parse("[00:01.00]<00:01.00>\n[00:02.00]<00:02.00>La")
+        XCTAssertEqual(parsed.lines.map(\.text), ["♪", "La"])
+    }
+
+    func testWordTimestampsAreStrippedFromTranslations() {
+        let parsed = parse("[00:01.00]本行\n<00:01.20>译<00:01.40>文")
+        XCTAssertEqual(parsed.lines.map(\.text), ["本行", "译文"])
+        XCTAssertNil(parsed.lines[1].time)
+    }
+
+    func testNonTimingAngleBracketsSurvive() {
+        let parsed = parse("[00:01.00]I <3 you\n[00:02.00]a <b> c")
+        XCTAssertEqual(parsed.lines.map(\.text), ["I <3 you", "a <b> c"])
+    }
+
     func testOutOfOrderTimestampsAreSorted() {
         let parsed = parse("[00:10]C\n[00:02]B\n[00:01]A")
         XCTAssertEqual(parsed.lines.map(\.text), ["A", "B", "C"])
