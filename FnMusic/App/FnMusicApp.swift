@@ -42,6 +42,7 @@ final class ApplicationMenuLocalizer: NSObject, NSApplicationDelegate {
 struct FnMusicApp: App {
     @NSApplicationDelegateAdaptor(ApplicationMenuLocalizer.self) private var menuLocalizer
     @State private var app = AppState()
+    @State private var menuBarPlayer = MenuBarPlayerController()
     @AppStorage("appearance") private var appearance = "system"
 
     var body: some Scene {
@@ -63,6 +64,7 @@ struct FnMusicApp: App {
             .focusEffectDisabled()
             .onAppear { Self.syncAppAppearance(appearance) }
             .onChange(of: appearance) { _, value in Self.syncAppAppearance(value) }
+            .task { menuBarPlayer.start(app: app) }
             .task {
                 #if DEBUG
                 // Hosted tests inject their own clients/windows. Never let test
