@@ -190,6 +190,39 @@ final class MenuBarPlayerTests: XCTestCase {
         }
     }
 
+    // MARK: - Rebuild triggers
+
+    /// Review item 1: a column-width change must invalidate the cached render
+    /// even though the lyric text and playback state are unchanged.
+    func testWidthChangeInvalidatesTheRenderedContent() {
+        let wide = MenuBarPlayerController.RenderKey(
+            text: "同一句", isPlaying: false, hasTrack: true, isDarkInk: false,
+            columnWidth: MenuBarBarLayout.defaultColumnWidth)
+        let narrow = MenuBarPlayerController.RenderKey(
+            text: "同一句", isPlaying: false, hasTrack: true, isDarkInk: false,
+            columnWidth: MenuBarBarLayout.minColumnWidth)
+        XCTAssertNotEqual(wide, narrow)
+        XCTAssertEqual(wide, MenuBarPlayerController.RenderKey(
+            text: "同一句", isPlaying: false, hasTrack: true, isDarkInk: false,
+            columnWidth: MenuBarBarLayout.defaultColumnWidth))
+    }
+
+    /// Review item 2: only a new line or width restarts the marquee; a
+    /// play-state or appearance redraw must resume where the line is.
+    func testMarqueeRestartsOnlyForNewLinesOrWidths() {
+        let key = MenuBarPlayerController.RenderKey(
+            text: "第一句", isPlaying: true, hasTrack: true, isDarkInk: false,
+            columnWidth: MenuBarBarLayout.defaultColumnWidth)
+        XCTAssertFalse(MenuBarPlayerController.restartsScroll(
+            previous: key, text: "第一句", columnWidth: MenuBarBarLayout.defaultColumnWidth))
+        XCTAssertTrue(MenuBarPlayerController.restartsScroll(
+            previous: key, text: "第二句", columnWidth: MenuBarBarLayout.defaultColumnWidth))
+        XCTAssertTrue(MenuBarPlayerController.restartsScroll(
+            previous: key, text: "第一句", columnWidth: MenuBarBarLayout.minColumnWidth))
+        XCTAssertTrue(MenuBarPlayerController.restartsScroll(
+            previous: nil, text: "第一句", columnWidth: MenuBarBarLayout.defaultColumnWidth))
+    }
+
     // MARK: - Rendering
 
     private func content(text: String, isPlaying: Bool = true, hasTrack: Bool = true,
@@ -225,8 +258,12 @@ final class MenuBarPlayerTests: XCTestCase {
                                 width: column * scale,
                                 height: MenuBarBarLayout.height * scale)
 
-        XCTAssertEqual(Self.png(try XCTUnwrap(start.cropping(to: controlsRect))),
-                       Self.png(try XCTUnwrap(moved.cropping(to: controlsRect))),
+        let startControls = try XCTUnwrap(start.cropping(to: controlsRect))
+        let movedControls = try XCTUnwrap(moved.cropping(to: controlsRect))
+        let blankControls = try XCTUnwrap(Self.blank(width: controlsRect.width, height: Int(controlsRect.height)))
+        XCTAssertNotEqual(Self.png(startControls), Self.png(blankControls),
+                          "the control strip must be painted for this comparison to mean anything")
+        XCTAssertEqual(Self.png(startControls), Self.png(movedControls),
                        "the transport controls must not move while the lyric scrolls")
         XCTAssertNotEqual(Self.png(try XCTUnwrap(start.cropping(to: columnRect))),
                           Self.png(try XCTUnwrap(moved.cropping(to: columnRect))),
@@ -262,7 +299,10 @@ final class MenuBarPlayerTests: XCTestCase {
         XCTAssertEqual(MenuBarPlayerController.inkColor(for: NSAppearance(named: .aqua)!), .black)
     }
 
-    func testRenderSavesReviewPreviews() throws {
+    func testRenderSavesReviewPreviewsWhenRequested() throws {
+        guard ProcessInfo.processInfo.environment["FN_MENUBAR_PREVIEW"] == "1" else {
+            throw XCTSkip("set FN_MENUBAR_PREVIEW=1 to write preview PNGs")
+        }
         for (name, text, offset, width) in [
             ("short", "踞江东志在九州", nil, MenuBarBarLayout.defaultColumnWidth),
             ("narrow", "踞江东志在九州", nil, MenuBarBarLayout.minColumnWidth),
@@ -292,6 +332,9 @@ final class MenuBarPlayerTests: XCTestCase {
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+        // `draw` works in points; without this the 2x bitmap only fills a
+        // quarter of the canvas and pixel assertions compare blank areas.
+        context.scaleBy(x: scale, y: scale)
         MenuBarRenderer.draw(content, in: context, bounds: CGRect(
             x: 0, y: 0, width: MenuBarBarLayout.statusLength(columnWidth: column),
             height: MenuBarBarLayout.height))

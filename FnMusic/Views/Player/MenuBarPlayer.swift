@@ -281,7 +281,7 @@ final class MenuBarPlayerController: NSObject {
     /// key uses the resolved ink color: equal keys never reset the marquee.
     private var renderedKey: RenderKey?
 
-    private struct RenderKey: Equatable {
+    struct RenderKey: Equatable {
         let text: String
         let isPlaying: Bool
         let hasTrack: Bool
@@ -384,7 +384,7 @@ final class MenuBarPlayerController: NSObject {
     }
 
     private func update() {
-        guard let app, let statusItem, let canvas else { return }
+        guard let app, let statusItem else { return }
         let player = app.library?.player
         let track = player?.currentTrack
         let lyrics = app.library?.menuBarLyrics
@@ -404,8 +404,11 @@ final class MenuBarPlayerController: NSObject {
         if loadedLyricsGUID != track?.guid {
             loadedLyricsGUID = track?.guid
             lyricsLoad?.cancel()
-            guard let lyrics else { return }
-            lyricsLoad = Task { await lyrics.load(trackGUID: track?.guid) }
+            // Never return early here: logging out must still clear tooltips,
+            // stale lyric text and the scroll timer.
+            if let lyrics {
+                lyricsLoad = Task { await lyrics.load(trackGUID: track?.guid) }
+            }
         }
 
         let text = MenuBarNowPlaying.displayText(
@@ -419,10 +422,8 @@ final class MenuBarPlayerController: NSObject {
             button.setAccessibilityLabel(MenuBarNowPlaying.accessibilityLabel(track: track, text: text))
         }
 
-        guard displayedText != text || displayedPlaying != isPlaying || displayedHasTrack != hasTrack else {
-            updateScrolling(visible: visible)
-            return
-        }
+        // No early return on "nothing changed": a column-width change keeps
+        // text/playback equal but must still repaint and re-aim the hit zones.
         displayedText = text
         displayedPlaying = isPlaying
         displayedHasTrack = hasTrack
@@ -445,6 +446,10 @@ final class MenuBarPlayerController: NSObject {
             updateScrolling(visible: visible)
             return
         }
+        // A new line or width restarts the marquee from its resting offset;
+        // a play-state or appearance change keeps the line where it is.
+        let restart = Self.restartsScroll(previous: renderedKey, text: text, columnWidth: columnWidth)
+        let preservedOffset = canvas.content.offset
         renderedKey = key
         let tint: Color = isDarkInk ? .white : .black
         guard let lyric = Self.raster(MenuBarLyricStrip(text: text, tint: tint)),
@@ -453,11 +458,20 @@ final class MenuBarPlayerController: NSObject {
         controlsImage = controls
         textWidth = CGFloat(lyric.width) / Self.scale
         isScrolling = textWidth > columnWidth + 0.5
+        if restart { scrollStart = ProcessInfo.processInfo.systemUptime }
         canvas.content = MenuBarCanvasView.Content(
             text: lyric, controls: controls, textWidth: textWidth,
-            columnWidth: columnWidth, hasTrack: hasTrack, offset: isScrolling ? 0 : nil)
+            columnWidth: columnWidth, hasTrack: hasTrack,
+            offset: isScrolling ? (restart ? 0 : preservedOffset) : nil)
         canvas.needsDisplay = true
         updateScrolling(visible: visible)
+    }
+
+    /// A new lyric line (or a new column width) starts the marquee over; only
+    /// then does the rest-pause apply again. Other redraws resume in place.
+    static func restartsScroll(previous: RenderKey?, text: String, columnWidth: CGFloat) -> Bool {
+        guard let previous else { return true }
+        return previous.text != text || previous.columnWidth != columnWidth
     }
 
     private func updateScrolling(visible: Bool) {
@@ -466,7 +480,13 @@ final class MenuBarPlayerController: NSObject {
 
     private func startScrolling() {
         guard scrollTimer == nil else { return }
-        scrollStart = ProcessInfo.processInfo.systemUptime
+        // Resuming after a hidden item must continue where the line stopped,
+        // not restart the pass or skip the head of the line.
+        let now = ProcessInfo.processInfo.systemUptime
+        let offset = canvas?.content.offset ?? 0
+        scrollStart = offset > 0
+            ? now - (MenuBarBarLayout.scrollPause + TimeInterval(offset / MenuBarBarLayout.scrollSpeed))
+            : now
         let timer = Timer(timeInterval: MenuBarBarLayout.frameInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.advanceScroll() }
         }
