@@ -8,6 +8,8 @@ struct PlaylistDetailContent: View {
     @State private var model: PagedViewModel<Track>
     @State private var requestTask: Task<Void, Never>?
     @State private var activeRequest: CatalogRequestIdentity?
+    @State private var isPreparingPlayback = false
+    @State private var playTask: Task<Void, Never>?
 
     init(playlist: Playlist, service: any MusicServiceProtocol, controls: CatalogControls) {
         self.playlist = playlist
@@ -47,7 +49,7 @@ struct PlaylistDetailContent: View {
                     .padding(.horizontal, 40)
 
                     TrackList(tracks: visibleTracks, playlistGUID: playlist.guid, scrollProxy: proxy,
-                              rowStyle: .collectionDetail)
+                              rowStyle: .collectionDetail, onPlayTrack: { playTrack($0) })
                         .padding(.horizontal, 22)
                     PageFooter(model: model)
                 }
@@ -61,6 +63,9 @@ struct PlaylistDetailContent: View {
             requestTask?.cancel()
             requestTask = nil
             activeRequest = nil
+            playTask?.cancel()
+            playTask = nil
+            isPreparingPlayback = false
         }
         .accessibilityIdentifier("FnMusic.PlaylistDetail")
     }
@@ -95,7 +100,7 @@ struct PlaylistDetailContent: View {
                 .font(.system(size: 29, weight: .bold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             HStack(spacing: 10) {
-                actionButton("shuffle", title: "随机播放") { play(shuffle: true) }
+                actionButton("shuffle", title: "随机播放", isLoading: isPreparingPlayback) { play(shuffle: true) }
                 Button { play(shuffle: false) } label: {
                     Label("播放", systemImage: "play.fill")
                         .font(.system(size: 13, weight: .semibold))
@@ -109,13 +114,16 @@ struct PlaylistDetailContent: View {
         .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
     }
 
-    private func actionButton(_ symbol: String, title: String, action: @escaping () -> Void) -> some View {
+    private func actionButton(_ symbol: String, title: String, isLoading: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 13, weight: .semibold))
-                .frame(width: 34, height: 34).background(Color.primary.opacity(0.065), in: Circle())
+            Group {
+                if isLoading { ProgressView().controlSize(.small) }
+                else { Image(systemName: symbol).font(.system(size: 13, weight: .semibold)) }
+            }
+            .frame(width: 34, height: 34).background(Color.primary.opacity(0.065), in: Circle())
         }
         .buttonStyle(.plain).foregroundStyle(.pink).help(title).accessibilityLabel(title)
-        .disabled(visibleTracks.isEmpty)
+        .disabled(visibleTracks.isEmpty || isLoading)
     }
 
     private var visibleTracks: [Track] {
@@ -137,6 +145,9 @@ struct PlaylistDetailContent: View {
         let identity = taskIdentity
         if activeRequest != identity || requestTask == nil {
             requestTask?.cancel()
+            playTask?.cancel()
+            playTask = nil
+            isPreparingPlayback = false
             activeRequest = identity
             let model = model
             let sort = identity.sort
@@ -149,9 +160,51 @@ struct PlaylistDetailContent: View {
     }
 
     private func play(shuffle: Bool) {
+        if shuffle && model.hasMore {
+            playTask?.cancel()
+            let token = library.player.beginPendingPlay()
+            isPreparingPlayback = true
+            playTask = Task {
+                defer {
+                    isPreparingPlayback = false
+                    playTask = nil
+                }
+                let completed = await model.loadAll()
+                guard !Task.isCancelled, library.player.isCurrentPendingPlay(token) else { return }
+                guard completed else {
+                    if let error = model.error {
+                        library.actions.error = "读取完整歌单失败：\(error)"
+                    }
+                    return
+                }
+                let tracks = visibleTracks
+                guard let track = tracks.randomElement() else {
+                    library.actions.error = "歌单中没有可播放的歌曲。"
+                    return
+                }
+                library.player.queue.shuffle = true
+                library.player.play(track, in: tracks)
+            }
+            return
+        }
+
+        playTask?.cancel()
+        playTask = nil
+        isPreparingPlayback = false
         let tracks = visibleTracks
         guard let track = shuffle ? tracks.randomElement() : tracks.first else { return }
         library.player.queue.shuffle = shuffle
-        library.player.play(track, in: model.items)
+        playTrack(track)
+    }
+
+    private func playTrack(_ track: Track) {
+        playTask?.cancel()
+        playTask = nil
+        isPreparingPlayback = false
+        let tracks = visibleTracks
+        let continuation = model.playbackContinuation(matching: controls.trimmedQuery)
+        library.player.play(track, in: tracks, continuation: continuation) { error in
+            library.actions.notice = "后续歌单歌曲加载未完成：\(error.localizedDescription)"
+        }
     }
 }

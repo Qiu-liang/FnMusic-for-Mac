@@ -513,4 +513,150 @@ final class QueueManagerTests: XCTestCase {
         }
         XCTAssertEqual(RepeatMode.one.symbol, "repeat.1")
     }
+
+    // MARK: - Multi-page batch append & player backfill
+
+    func testBatchAppendCoversEntireMultiPagePlaylistAcrossPasses() throws {
+        let allTracks = (0..<150).map { Track(guid: "t\($0)") }
+        let queue = QueueManager()
+        queue.replace(with: Array(allTracks[0..<60]), startAt: "t0")
+        queue.shuffle = true
+
+        var pass1 = [try XCTUnwrap(queue.current?.guid)]
+        for _ in 0..<5 {
+            pass1.append(try XCTUnwrap(queue.next()?.guid))
+        }
+
+        queue.append(contentsOf: Array(allTracks[60..<120]))
+        // Include a duplicate of an already-played entry to verify deduplication.
+        queue.append(contentsOf: [allTracks[0]] + Array(allTracks[120..<150]))
+
+        var steps = 0
+        while let track = queue.next() {
+            pass1.append(track.guid)
+            steps += 1
+            if steps > 200 {
+                XCTFail("multi-page shuffle pass did not terminate")
+                break
+            }
+        }
+        XCTAssertEqual(pass1.count, 150)
+        XCTAssertEqual(Set(pass1), Set(allTracks.map(\.guid)))
+
+        var pass2: [String] = []
+        for _ in 0..<150 {
+            let next = try XCTUnwrap(queue.nextForPlayback())
+            pass2.append(next.guid)
+        }
+        XCTAssertEqual(pass2.count, 150)
+        XCTAssertEqual(Set(pass2), Set(allTracks.map(\.guid)))
+        XCTAssertNotEqual(pass2.first, pass1.last)
+    }
+
+    func testAudioPlayerBackfillsRemainingPlaylistPagesAndIsolatesSessions() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OfflineFailURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = APIClient(origin: try APIClient.serverURL("https://backfill-test.invalid"),
+                               token: "test-only", session: session)
+        let cache = ImageCache(client: client, namespace: "queue-manager-test")
+        let player = AudioPlayer(client: client, artworkCache: cache)
+        defer { player.shutdown() }
+
+        let allTracks = (0..<150).map { Track(guid: "t\($0)") }
+        let page1 = Array(allTracks[0..<60])
+        let page2 = Array(allTracks[60..<120])
+        let page3 = Array(allTracks[120..<150])
+        let continuation = PagedTrackContinuation(
+            startPage: 2,
+            loadedGUIDs: Set(page1.map(\.guid))
+        ) { page in
+            switch page {
+            case 2: return Page(list: page2, total: 150)
+            case 3: return Page(list: page3, total: 150)
+            default: return Page(list: [], total: 150)
+            }
+        }
+
+        player.queue.shuffle = true
+        player.play(page1[0], in: page1, continuation: continuation)
+        await player.waitForBackfill()
+
+        XCTAssertEqual(player.queue.tracks.count, 150)
+        var played = [try XCTUnwrap(player.queue.current?.guid)]
+        var steps = 0
+        while let track = player.queue.next() {
+            played.append(track.guid)
+            steps += 1
+            if steps > 200 {
+                XCTFail("backfilled shuffle traversal did not terminate")
+                break
+            }
+        }
+        XCTAssertEqual(played.count, 150)
+        XCTAssertEqual(Set(played), Set(allTracks.map(\.guid)))
+
+        // Replacing playback mid-backfill must isolate the new session.
+        let gate = SuspendedPageGate()
+        let slowContinuation = PagedTrackContinuation(
+            startPage: 2,
+            loadedGUIDs: ["old-1"]
+        ) { _ in
+            try await gate.wait()
+            return Page(list: [Track(guid: "old-2")], total: 2)
+        }
+        player.play(Track(guid: "old-1"), in: [Track(guid: "old-1")], continuation: slowContinuation)
+        await gate.waitUntilRequested()
+
+        player.play(Track(guid: "new-1"), in: [Track(guid: "new-1")])
+        await gate.release()
+        await player.waitForBackfill()
+
+        XCTAssertEqual(player.queue.tracks.map(\.guid), ["new-1"])
+        XCTAssertEqual(player.queue.current?.guid, "new-1")
+    }
+}
+
+private final class OfflineFailURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url,
+              let response = HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil,
+                                             headerFields: ["Content-Type": "text/plain"]) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+private actor SuspendedPageGate {
+    private var requested = false
+    private var requestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Error>] = []
+
+    func waitUntilRequested() async {
+        if requested { return }
+        await withCheckedContinuation { requestWaiters.append($0) }
+    }
+
+    func wait() async throws {
+        requested = true
+        let waiters = requestWaiters
+        requestWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        try await withCheckedThrowingContinuation { releaseWaiters.append($0) }
+    }
+
+    func release() {
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
 }

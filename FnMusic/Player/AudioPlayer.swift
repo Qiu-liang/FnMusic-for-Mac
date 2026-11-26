@@ -21,6 +21,8 @@ final class AudioPlayer {
     @ObservationIgnored private let player = AVPlayer()
     @ObservationIgnored private var resourceLoader: AudioResourceLoader?
     @ObservationIgnored private var preparation: Task<Void, Never>?
+    @ObservationIgnored private var backfillTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingPlayID = UUID()
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var itemObservation: NSKeyValueObservation?
     @ObservationIgnored private var endObserver: NSObjectProtocol?
@@ -49,12 +51,77 @@ final class AudioPlayer {
         media = MediaSession(player: self, artworkCache: artworkCache)
     }
 
-    func play(_ track: Track, in tracks: [Track]? = nil) {
+    @discardableResult
+    func beginPendingPlay() -> UUID {
+        cancelBackfill()
+        let token = UUID()
+        pendingPlayID = token
+        return token
+    }
+
+    func isCurrentPendingPlay(_ id: UUID) -> Bool {
+        pendingPlayID == id
+    }
+
+    func cancelBackfill() {
+        backfillTask?.cancel()
+        backfillTask = nil
+    }
+
+    func waitForBackfill() async {
+        await backfillTask?.value
+    }
+
+    func play(_ track: Track, in tracks: [Track]? = nil,
+              continuation: PagedTrackContinuation? = nil,
+              onBackfillError: (@MainActor (Error) -> Void)? = nil) {
+        pendingPlayID = UUID()
+        cancelBackfill()
         queue.replace(with: tracks ?? [track], startAt: track.guid)
+        let expectedSessionID = queue.sessionID
         prepareCurrent()
+
+        guard let continuation else { return }
+        var seen = continuation.loadedGUIDs
+        seen.formUnion(queue.tracks.map(\.guid))
+        backfillTask = Task { [weak self] in
+            guard let self else { return }
+            var page = continuation.startPage
+            var pagesLoaded = 0
+            var hasMore = true
+            while hasMore, pagesLoaded < continuation.maxPages,
+                  !Task.isCancelled, self.queue.sessionID == expectedSessionID {
+                do {
+                    let response = try await continuation.fetchPage(page)
+                    try Task.checkCancellation()
+                    guard self.queue.sessionID == expectedSessionID else { return }
+                    let added = response.list.filter { seen.insert($0.guid).inserted }
+                    let matching = continuation.filter.map { added.filter($0) } ?? added
+                    if !matching.isEmpty {
+                        self.queue.append(contentsOf: matching)
+                    }
+                    if added.isEmpty || response.list.isEmpty {
+                        hasMore = false
+                    } else if let total = response.total {
+                        hasMore = seen.count < total
+                    } else {
+                        hasMore = response.list.count >= MusicService.pageSize
+                    }
+                    page += 1
+                    pagesLoaded += 1
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard !Task.isCancelled, self.queue.sessionID == expectedSessionID else { return }
+                    onBackfillError?(error)
+                    return
+                }
+            }
+        }
     }
 
     func playQueueIndex(_ index: Int) {
+        pendingPlayID = UUID()
         guard queue.select(index: index) != nil else { return }
         prepareCurrent()
     }
@@ -63,6 +130,9 @@ final class AudioPlayer {
         let wasCurrent = queue.index == index
         let wasPlaying = wantsPlayback
         queue.remove(at: index)
+        if queue.tracks.isEmpty {
+            cancelBackfill()
+        }
         guard wasCurrent else { return }
         preparation?.cancel()
         generation = UUID()
@@ -86,6 +156,7 @@ final class AudioPlayer {
     }
 
     func pause() {
+        pendingPlayID = UUID()
         wantsPlayback = false
         player.pause()
         isPlaying = false
@@ -215,6 +286,8 @@ final class AudioPlayer {
     /// Called before discarding a signed-in context. Stops network, releases
     /// observers and removes private metadata from system media controls.
     func shutdown() {
+        pendingPlayID = UUID()
+        cancelBackfill()
         preparation?.cancel()
         preparation = nil
         generation = UUID()

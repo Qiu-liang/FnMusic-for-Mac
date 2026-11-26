@@ -154,6 +154,7 @@ struct HomeView: View {
     private func startRoaming() {
         guard !isRoaming else { return }
         isRoaming = true
+        let token = library.player.beginPendingPlay()
         roamTask = Task {
             defer { isRoaming = false; roamTask = nil }
             do {
@@ -176,7 +177,7 @@ struct HomeView: View {
                     }
                     page += 1
                 }
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, library.player.isCurrentPendingPlay(token) else { return }
                 guard let first = allTracks.randomElement() else {
                     library.actions.error = "音乐库中没有可播放的歌曲。"
                     return
@@ -186,6 +187,7 @@ struct HomeView: View {
             } catch is CancellationError {
                 return
             } catch {
+                guard library.player.isCurrentPendingPlay(token) else { return }
                 library.actions.error = "读取音乐库失败：\(error.localizedDescription)"
             }
         }

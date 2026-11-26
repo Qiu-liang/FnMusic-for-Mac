@@ -5,6 +5,7 @@ struct ArtistTrackRow: View {
     let track: Track
     let index: Int
     let queue: [Track]
+    var onPlayTrack: ((Track) -> Void)? = nil
     let selectArtist: (Artist) -> Void
     @State private var hovering = false
 
@@ -27,7 +28,7 @@ struct ArtistTrackRow: View {
             .accessibilityLabel(isFavorite ? "取消收藏 \(track.displayTitle)" : "收藏 \(track.displayTitle)")
             .disabled(library.actions.busyTracks.contains(track.guid))
 
-            Button { library.player.play(track, in: queue) } label: {
+            Button { playTrack() } label: {
                 HStack(spacing: 12) {
                     Group {
                         if isCurrent && library.player.isPlaying {
@@ -71,7 +72,7 @@ struct ArtistTrackRow: View {
     }
 
     @ViewBuilder private var moreMenu: some View {
-        Button("播放") { library.player.play(track, in: queue) }
+        Button("播放") { playTrack() }
         Button("下一首播放") { library.player.queue.insertNext(track) }
         Button("添加到队列") { library.player.queue.append(track) }
         Divider()
@@ -90,6 +91,14 @@ struct ArtistTrackRow: View {
             ForEach(artists) { artist in
                 Button("查看艺人：\(artist.displayName)") { selectArtist(artist) }
             }
+        }
+    }
+
+    private func playTrack() {
+        if let onPlayTrack {
+            onPlayTrack(track)
+        } else {
+            library.player.play(track, in: queue)
         }
     }
 }

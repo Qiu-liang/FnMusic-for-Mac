@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 
 /// Repeat-one affects automatic completion only; manual navigation still advances.
@@ -64,6 +65,7 @@ final class QueueManager {
     // Internal traversal state must not create observation dependencies for views.
     // The shuffle bag stores GUIDs, not indices, so duplicate queue entries are
     // scheduled at most once per pass.
+    @ObservationIgnored private(set) var sessionID = UUID()
     @ObservationIgnored private var bag: [String] = []
     // GUIDs already played (or explicitly queued with "play next") this pass.
     @ObservationIgnored private var passScheduledGUIDs: Set<String> = []
@@ -71,6 +73,7 @@ final class QueueManager {
     @ObservationIgnored private var historyPosition = 0
 
     func replace(with tracks: [Track], startAt guid: String) {
+        sessionID = UUID()
         self.tracks = tracks
         index = tracks.firstIndex { $0.guid == guid } ?? tracks.indices.first
         resetShuffle()
@@ -92,6 +95,30 @@ final class QueueManager {
               !bag.contains(guid),
               !passScheduledGUIDs.contains(guid) else { return }
         bag.insert(guid, at: Int.random(in: 0...bag.count))
+    }
+
+    /// Appends a batch of tracks (e.g. background-loaded pages) while folding
+    /// unseen GUIDs uniformly into the active shuffle pass.
+    func append(contentsOf newTracks: [Track]) {
+        guard !newTracks.isEmpty else { return }
+        guard index != nil else {
+            tracks = newTracks
+            index = 0
+            resetShuffle()
+            return
+        }
+        tracks.append(contentsOf: newTracks)
+        guard shuffle else { return }
+
+        let currentGUID = current?.guid
+        var knownInBag = Set(bag)
+        for track in newTracks {
+            let guid = track.guid
+            guard guid != currentGUID,
+                  !passScheduledGUIDs.contains(guid),
+                  knownInBag.insert(guid).inserted else { continue }
+            bag.insert(guid, at: Int.random(in: 0...bag.count))
+        }
     }
 
     /// Inserts directly after the current entry, including in shuffle traversal.
@@ -163,6 +190,7 @@ final class QueueManager {
     }
 
     func clear() {
+        sessionID = UUID()
         tracks.removeAll()
         index = nil
         resetShuffle()

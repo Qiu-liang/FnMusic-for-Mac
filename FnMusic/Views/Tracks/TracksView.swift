@@ -6,6 +6,8 @@ struct TracksView: View {
     @State private var controls: CatalogControls
     @State private var requestTask: Task<Void, Never>?
     @State private var activeRequest: CatalogRequestIdentity?
+    @State private var isPreparingPlayback = false
+    @State private var playTask: Task<Void, Never>?
     private let service: any MusicServiceProtocol
     let source: TrackSource
     let showsToolbar: Bool
@@ -42,6 +44,9 @@ struct TracksView: View {
             requestTask?.cancel()
             requestTask = nil
             activeRequest = nil
+            playTask?.cancel()
+            playTask = nil
+            isPreparingPlayback = false
         }
     }
 
@@ -52,7 +57,8 @@ struct TracksView: View {
                     LoadStateView(isLoading: model.isLoading, isEmpty: visibleTracks.isEmpty,
                                   error: model.items.isEmpty ? model.error : nil,
                                   emptyTitle: controls.trimmedQuery.isEmpty ? "这里还没有音乐" : "没有匹配的歌曲") { controls.refresh() }
-                    TrackList(tracks: visibleTracks, playlistGUID: playlistGUID, scrollProxy: proxy)
+                    TrackList(tracks: visibleTracks, playlistGUID: playlistGUID, scrollProxy: proxy,
+                              onPlayTrack: supportsQueueBackfill ? { playTrack($0) } : nil)
                     PageFooter(model: model)
                 }.padding(28)
             }
@@ -87,7 +93,8 @@ struct TracksView: View {
                     }
                     .padding(.horizontal, 40)
 
-                    TrackList(tracks: visibleTracks, scrollProxy: proxy, rowStyle: .collectionDetail)
+                    TrackList(tracks: visibleTracks, scrollProxy: proxy, rowStyle: .collectionDetail,
+                              onPlayTrack: supportsQueueBackfill ? { playTrack($0) } : nil)
                         .padding(.horizontal, 22)
                     PageFooter(model: model)
                 }
@@ -130,7 +137,7 @@ struct TracksView: View {
                 .font(.system(size: 29, weight: .bold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             HStack(spacing: 10) {
-                collectionActionButton("shuffle", title: "随机播放") { playCollection(shuffle: true) }
+                collectionActionButton("shuffle", title: "随机播放", isLoading: isPreparingPlayback) { playCollection(shuffle: true) }
                 Button { playCollection(shuffle: false) } label: {
                     Label("播放", systemImage: "play.fill")
                         .font(.system(size: 13, weight: .semibold))
@@ -144,21 +151,68 @@ struct TracksView: View {
         .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
     }
 
-    private func collectionActionButton(_ symbol: String, title: String, action: @escaping () -> Void) -> some View {
+    private func collectionActionButton(_ symbol: String, title: String, isLoading: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 13, weight: .semibold))
-                .frame(width: 34, height: 34).background(Color.primary.opacity(0.065), in: Circle())
+            Group {
+                if isLoading { ProgressView().controlSize(.small) }
+                else { Image(systemName: symbol).font(.system(size: 13, weight: .semibold)) }
+            }
+            .frame(width: 34, height: 34).background(Color.primary.opacity(0.065), in: Circle())
         }
         .buttonStyle(.plain).foregroundStyle(.pink).help(title).accessibilityLabel(title)
-        .disabled(visibleTracks.isEmpty)
+        .disabled(visibleTracks.isEmpty || isLoading)
     }
 
     private func playCollection(shuffle: Bool) {
+        if shuffle && model.hasMore {
+            playTask?.cancel()
+            let token = library.player.beginPendingPlay()
+            isPreparingPlayback = true
+            playTask = Task {
+                defer {
+                    isPreparingPlayback = false
+                    playTask = nil
+                }
+                let completed = await model.loadAll()
+                guard !Task.isCancelled, library.player.isCurrentPendingPlay(token) else { return }
+                guard completed else {
+                    if let error = model.error {
+                        library.actions.error = "读取完整歌曲列表失败：\(error)"
+                    }
+                    return
+                }
+                let tracks = visibleTracks
+                guard let track = tracks.randomElement() else {
+                    library.actions.error = "没有可播放的歌曲。"
+                    return
+                }
+                library.player.queue.shuffle = true
+                library.player.play(track, in: tracks)
+            }
+            return
+        }
+
+        playTask?.cancel()
+        playTask = nil
+        isPreparingPlayback = false
         let tracks = visibleTracks
         guard let track = shuffle ? tracks.randomElement() : tracks.first else { return }
         library.player.queue.shuffle = shuffle
-        library.player.play(track, in: tracks)
+        playTrack(track)
     }
+
+    private func playTrack(_ track: Track) {
+        playTask?.cancel()
+        playTask = nil
+        isPreparingPlayback = false
+        let tracks = visibleTracks
+        let continuation = supportsQueueBackfill ? model.playbackContinuation(matching: controls.trimmedQuery) : nil
+        library.player.play(track, in: tracks, continuation: continuation) { error in
+            library.actions.notice = "后续歌曲加载未完成：\(error.localizedDescription)"
+        }
+    }
+
+    private var supportsQueueBackfill: Bool { source != .library }
 
     private var isCollectionDetail: Bool { source == .favorites || source == .history }
     private var collectionTitle: String { source == .favorites ? "喜爱歌曲" : "最近播放" }
@@ -191,6 +245,9 @@ struct TracksView: View {
         // Local query changes update only the projection, not pagination or an in-flight page.
         if activeRequest != identity || requestTask == nil {
             requestTask?.cancel()
+            playTask?.cancel()
+            playTask = nil
+            isPreparingPlayback = false
             activeRequest = identity
             let service = service
             let model = model
@@ -253,6 +310,7 @@ struct TrackList: View {
     var playlistGUID: String? = nil
     var scrollProxy: ScrollViewProxy? = nil
     var rowStyle: TrackListRowStyle = .standard
+    var onPlayTrack: ((Track) -> Void)? = nil
     @State private var removing: Track?
     @State private var selected: Int?
 
@@ -275,7 +333,7 @@ struct TrackList: View {
                     }
                 }
                 .contentShape(Rectangle())
-                .onTapGesture(count: 2) { library.player.play(track, in: tracks) }
+                .onTapGesture(count: 2) { play(track) }
                 .onTapGesture { selected = index }
                 .contextMenu { trackActions(for: track) }
                 .accessibilityElement(children: .combine)
@@ -297,7 +355,7 @@ struct TrackList: View {
         .focusable()
         .onKeyPress(.return) {
             guard let selected, tracks.indices.contains(selected) else { return .ignored }
-            library.player.play(tracks[selected], in: tracks)
+            play(tracks[selected])
             return .handled
         }
         .onKeyPress(.downArrow) { moveSelection(1); return .handled }
@@ -348,7 +406,7 @@ struct TrackList: View {
             }
         } else {
             HStack(spacing: 12) {
-                Button { library.player.play(track, in: tracks) } label: {
+                Button { play(track) } label: {
                     Image(systemName: library.player.currentTrack?.guid == track.guid && library.player.isPlaying ? "waveform" : "play.fill")
                         .font(.caption).frame(width: 28)
                 }.buttonStyle(.plain).foregroundStyle(.pink).help("播放")
@@ -372,7 +430,7 @@ struct TrackList: View {
     }
 
     @ViewBuilder private func trackActions(for track: Track) -> some View {
-        Button("播放") { library.player.play(track, in: tracks) }
+        Button("播放") { play(track) }
         Button("下一首播放") { library.player.queue.insertNext(track) }
         Button("添加到队列") { library.player.queue.append(track) }
         Divider()
@@ -389,6 +447,14 @@ struct TrackList: View {
         Divider()
         if let album = track.album { Button("查看专辑") { library.navigation.append(.album(album)) } }
         if let artist = track.artists?.first { Button("查看艺人") { library.navigation.append(.artist(artist)) } }
+    }
+
+    private func play(_ track: Track) {
+        if let onPlayTrack {
+            onPlayTrack(track)
+        } else {
+            library.player.play(track, in: tracks)
+        }
     }
 
     private func moveSelection(_ offset: Int) {

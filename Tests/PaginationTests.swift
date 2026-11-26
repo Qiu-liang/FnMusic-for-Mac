@@ -286,6 +286,121 @@ final class PaginationTests: XCTestCase {
         XCTAssertNil(model.error)
         XCTAssertFalse(model.isLoading)
     }
+
+    // MARK: - Full-collection drainage and playback continuation
+
+    func testLoadAllReusesFirstPageAndDrainsRemainingPages() async {
+        let requestedPages = RecordedPages()
+        let page1 = (0..<60).map { Track(guid: "t\($0)") }
+        let page2 = [Track(guid: "t59")] + (60..<120).map { Track(guid: "t\($0)") }
+        let page3 = (120..<150).map { Track(guid: "t\($0)") }
+        let pages: [Int: Page<Track>] = [
+            1: Page(list: page1, total: 150, sort: nil),
+            2: Page(list: page2, total: 150, sort: nil),
+            3: Page(list: page3, total: 150, sort: nil),
+        ]
+        let model = makeModel { page, _ in
+            await requestedPages.append(page)
+            return pages[page] ?? Page(list: [], total: 150, sort: nil)
+        }
+
+        await model.refresh()
+        XCTAssertEqual(model.items.count, 60)
+        XCTAssertTrue(model.hasMore)
+
+        let completed = await model.loadAll()
+        XCTAssertTrue(completed)
+        XCTAssertFalse(model.hasMore)
+        XCTAssertNil(model.error)
+        XCTAssertEqual(model.items.count, 150)
+        XCTAssertEqual(Set(model.items.map(\.guid)).count, 150)
+        let recorded = await requestedPages.values()
+        XCTAssertEqual(recorded, [1, 2, 3], "First page must be reused without a duplicate request")
+    }
+
+    func testLoadAllWaitsForInFlightLoadMoreWithoutDuplicateRequests() async {
+        let requests = ControlledResponses<Page<Track>>()
+        let requestedPages = RecordedPages()
+        let model = makeModel { page, _ in
+            await requestedPages.append(page)
+            return try await requests.load()
+        }
+
+        let initialLoad = Task { await model.loadMore() }
+        await fulfillment(of: [requests.firstStarted], timeout: 2)
+
+        let loadAllTask = Task { await model.loadAll() }
+        await requests.succeed(0, with: Page(list: [Track(guid: "p1")], total: 2))
+        await fulfillment(of: [requests.secondStarted], timeout: 2)
+        await requests.succeed(1, with: Page(list: [Track(guid: "p2")], total: 2))
+
+        await initialLoad.value
+        let completed = await loadAllTask.value
+        XCTAssertTrue(completed)
+        XCTAssertEqual(model.items.map(\.guid), ["p1", "p2"])
+        XCTAssertFalse(model.hasMore)
+        let recorded = await requestedPages.values()
+        XCTAssertEqual(recorded, [1, 2])
+    }
+
+    func testLoadAllStopsOnErrorAndPreservesLoadedPages() async {
+        let page1 = (0..<60).map { Track(guid: "t\($0)") }
+        let model = makeModel { page, _ in
+            if page == 1 { return Page(list: page1, total: 120, sort: nil) }
+            throw APIError.network
+        }
+
+        await model.refresh()
+        let completed = await model.loadAll()
+        XCTAssertFalse(completed)
+        XCTAssertEqual(model.items.count, 60)
+        XCTAssertEqual(model.error, APIError.network.localizedDescription)
+        XCTAssertTrue(model.hasMore)
+    }
+
+    func testPlaybackContinuationCapturesNextPageSortAndFilter() async throws {
+        let recorded = RecordedPageSorts()
+        let page1 = [
+            Track(guid: "1", title: "Love Story"),
+            Track(guid: "2", title: "Nocturne")
+        ]
+        let model = makeModel { page, sort in
+            await recorded.append(page: page, sort: sort)
+            if page == 1 { return Page(list: page1, total: 3, sort: sort) }
+            return Page(list: [Track(guid: "3", title: "My Love")], total: 3, sort: sort)
+        }
+        model.sort = "title,asc"
+        await model.refresh()
+
+        let continuation = try XCTUnwrap(model.playbackContinuation(matching: "  love "))
+        XCTAssertEqual(continuation.startPage, 2)
+        XCTAssertEqual(continuation.loadedGUIDs, Set(["1", "2"]))
+        XCTAssertEqual(continuation.filter?(Track(guid: "3", title: "My Love")), true)
+        XCTAssertEqual(continuation.filter?(Track(guid: "4", title: "Prelude")), false)
+
+        let nextPage = try await continuation.fetchPage(2)
+        XCTAssertEqual(nextPage.list.map(\.guid), ["3"])
+        let calls = await recorded.values()
+        XCTAssertEqual(calls.map(\.page), [1, 2])
+        XCTAssertEqual(calls.map(\.sort), ["title,asc", "title,asc"])
+
+        await model.loadMore()
+        XCTAssertFalse(model.hasMore)
+        XCTAssertNil(model.playbackContinuation())
+    }
+}
+
+private actor RecordedPages {
+    private var pages: [Int] = []
+    func append(_ page: Int) { pages.append(page) }
+    func values() -> [Int] { pages }
+}
+
+private actor RecordedPageSorts {
+    struct Entry: Equatable, Sendable { let page: Int; let sort: String }
+    private var entries: [Entry] = []
+    func append(page: Int, sort: String) { entries.append(Entry(page: page, sort: sort)) }
+    func values() -> [Entry] { entries }
 }
 
 /// Deliberately ignores cancellation until the test resolves each request.
