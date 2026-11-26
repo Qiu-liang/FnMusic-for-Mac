@@ -14,6 +14,9 @@ final class LibraryContext {
     let player: AudioPlayer
     let queuePanel: QueuePanelState
     let lyricsPanel: LyricsViewModel
+    /// Separate lyric state for the menu bar so its `task` lifecycle never
+    /// cancels (or is cancelled by) the in-window lyrics panel.
+    let menuBarLyrics: LyricsViewModel
     let actions: LibraryActions
     let playlistMutations: PlaylistMutationService
     let artistBrowser: ArtistBrowserViewModel
@@ -63,6 +66,7 @@ final class LibraryContext {
         self.player = AudioPlayer(client: client, artworkCache: artworkCache)
         self.queuePanel = QueuePanelState(service: MusicService(client: client))
         self.lyricsPanel = LyricsViewModel(service: LyricsService(client: client))
+        self.menuBarLyrics = LyricsViewModel(service: LyricsService(client: client))
         self.actions = LibraryActions(favoriteService: FavoriteService(client: client))
         self.playlistMutations = PlaylistMutationService(client: client)
         self.artistBrowser = ArtistBrowserViewModel(music: MusicService(client: client), search: ArtistSearchService(client: client))

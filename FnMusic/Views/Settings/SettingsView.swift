@@ -7,6 +7,8 @@ struct SettingsView: View {
     @AppStorage("autoAdvance") private var autoAdvance = true
     @AppStorage("defaultRepeat") private var defaultRepeat = "off"
     @AppStorage("experimentalWrites") private var experimentalWrites = false
+    @AppStorage(MenuBarPlayerController.enabledKey) private var menuBarPlayer = true
+    @AppStorage(MenuBarPlayerController.widthKey) private var menuBarWidth = Double(MenuBarBarLayout.defaultColumnWidth)
     @State private var confirmExperimental = false
     @State private var cacheBytes: Int64 = 0
     @State private var busy = false
@@ -45,6 +47,18 @@ struct SettingsView: View {
                     }.onChange(of: defaultRepeat) { _, value in app.library?.player.queue.repeatMode = RepeatMode(rawValue: value) ?? .off }
                     LabeledContent("默认播放质量", value: "原始音频 · 不转码")
                     Text("转码 / HLS 为 H/F 级接口，暂未启用。格式支持取决于 macOS 原生解码器；CUE 虚拟分轨待验证。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Section("菜单栏") {
+                    Toggle("在菜单栏显示歌词与播放控制", isOn: $menuBarPlayer)
+                    Slider(value: $menuBarWidth,
+                           in: Double(MenuBarBarLayout.minColumnWidth)...Double(MenuBarBarLayout.maxColumnWidth),
+                           step: 20) {
+                        Text("歌词显示宽度")
+                    }
+                    Text("\(Int(menuBarWidth)) pt · 超出该宽度的歌词自动横向滚动；调窄可少占用菜单栏空间。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("播放时在菜单栏显示当前歌词行，以及上一首 / 播放暂停 / 下一首；未播放时自动隐藏。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("外观") {

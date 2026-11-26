@@ -35,10 +35,14 @@ enum LyricParser {
         let source = (lyric.content ?? "").components(separatedBy: .newlines)
         let offsetPattern = #"\[offset:([+-]?\d+)\]"#
         let stampPattern = #"\[(\d{1,3}):(\d{1,2})(?:[\.:](\d{1,3}))?\]"#
+        // Enhanced LRC adds per-word timing (`<00:17.42>You <00:17.69>jump`).
+        // Those markers are not lyrics and must never reach the display.
+        let wordStampPattern = #"<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>"#
         guard let stamp = try? NSRegularExpression(pattern: stampPattern),
               let offsetRegex = try? NSRegularExpression(pattern: offsetPattern, options: .caseInsensitive) else {
             return plain(source)
         }
+        let wordStamp = try? NSRegularExpression(pattern: wordStampPattern)
         var embeddedOffset: Double = 0
         for line in source {
             let ns = line as NSString
@@ -54,14 +58,14 @@ enum LyricParser {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
             if let rich = parseRichLine(trimmed) {
-                timed.append((rich.time - adjustment, rich.text, timed.count, []))
+                timed.append((rich.time - adjustment, clean(rich.text, wordStamp: wordStamp), timed.count, []))
                 continue
             }
             let ns = trimmed as NSString
             let matches = stamp.matches(in: trimmed, range: NSRange(location: 0, length: ns.length))
             if !matches.isEmpty {
-                let text = stamp.stringByReplacingMatches(in: trimmed, range: NSRange(location: 0, length: ns.length), withTemplate: "")
-                    .trimmingCharacters(in: .whitespaces)
+                let text = clean(stamp.stringByReplacingMatches(in: trimmed, range: NSRange(location: 0, length: ns.length), withTemplate: ""),
+                                 wordStamp: wordStamp)
                 for match in matches {
                     guard let minutes = Double(ns.substring(with: match.range(at: 1))),
                           let seconds = Double(ns.substring(with: match.range(at: 2))), seconds < 60 else { continue }
@@ -75,11 +79,12 @@ enum LyricParser {
                 }
             } else if !isMetadata(trimmed) {
                 if timed.isEmpty {
-                    fallback.append(trimmed)
+                    fallback.append(clean(trimmed, wordStamp: wordStamp))
                 } else {
                     // Keep translations/continuations beside the preceding timed
                     // entry when sorting, without giving them its timestamp.
-                    timed[timed.count - 1].untimed.append(trimmed)
+                    let continuation = clean(trimmed, wordStamp: wordStamp)
+                    if !continuation.isEmpty { timed[timed.count - 1].untimed.append(continuation) }
                 }
             }
         }
@@ -93,6 +98,18 @@ enum LyricParser {
             }
         }
         return ParsedLyrics(lines: lines)
+    }
+
+    /// Strips enhanced-LRC per-word markers and trims the result. Lyrics that
+    /// legitimately contain angle brackets (e.g. `<3`) survive because the
+    /// pattern only matches digit:digit timing shapes.
+    private static func clean(_ text: String, wordStamp: NSRegularExpression?) -> String {
+        var result = text
+        if let wordStamp {
+            let ns = result as NSString
+            result = wordStamp.stringByReplacingMatches(in: result, range: NSRange(location: 0, length: ns.length), withTemplate: "")
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func plain(_ lines: [String]) -> ParsedLyrics {
